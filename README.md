@@ -11,6 +11,47 @@ The kit intentionally keeps the agent surface small:
 
 The same skills are materialized into each agent's native project layout by `install.py`, so you maintain **one source of truth** instead of three copies.
 
+## Cài nhanh (Tiếng Việt)
+
+Cài vào một repo đang làm việc:
+
+```bash
+git clone https://github.com/cuongtobi/my-vibe-kit.git
+cd my-vibe-kit
+python install.py --target /duong-dan/toi/project --agents codex claude antigravity
+```
+
+Sau đó mở project bằng Codex, Claude Code hoặc Antigravity và dùng bình thường:
+
+```text
+Use vibe to add tính năng export CSV cho báo cáo.
+```
+
+```text
+Use vibe to fix lỗi backtest crash khi history rỗng.
+```
+
+```text
+Use plan to phân tích việc đổi SQLite sang PostgreSQL. Chưa sửa code.
+```
+
+Workflow chính:
+
+```text
+vibe
+  -> plan: context + dependency + impact + plan
+  -> build: code + test
+  -> verify: dependency diff + lint/type/test/build + diff review
+```
+
+Các file context/dependency được lưu dưới `.vibe/`, không phụ thuộc vào việc chat đã dài bao nhiêu. Với bug, workflow bắt buộc ưu tiên:
+
+```text
+reproduce -> root cause -> regression test fail -> minimal fix -> regression test pass -> verify
+```
+
+Nếu project chưa có test/lint/typecheck command phù hợp, hãy sửa `.vibe/config.json`. Toolkit sẽ trả `NEEDS_VERIFICATION_CONFIG`, không tự nhận `PASS_VERIFIED`.
+
 ## Design goals
 
 - One personal workflow across Codex, Claude Code, and Antigravity.
