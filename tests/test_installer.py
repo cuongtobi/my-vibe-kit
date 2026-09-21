@@ -3,6 +3,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -87,6 +88,20 @@ class InstallerTests(unittest.TestCase):
             self.assertFalse((target / ".vibe").exists())
             self.assertFalse((target / ".agents").exists())
 
+    def test_claude_bundle_contains_skill_definition(self):
+        result = subprocess.run(
+            [sys.executable, str(INSTALLER), "--bundle-claude", "--force"],
+            cwd=str(ROOT),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        archive = ROOT / "dist" / "claude-skills" / "vibe.zip"
+        self.assertTrue(archive.exists())
+        with zipfile.ZipFile(str(archive), "r") as bundle:
+            self.assertIn("SKILL.md", bundle.namelist())
 
 if __name__ == "__main__":
     unittest.main()
