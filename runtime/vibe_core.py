@@ -320,8 +320,14 @@ def best_python_target(module: str, module_to_path: Dict[str, str]) -> Optional[
     return None
 
 
-def resolve_relative_python(current_module: str, level: int, module: Optional[str]) -> str:
-    package_parts = current_module.split(".")[:-1]
+def resolve_relative_python(
+    current_module: str,
+    level: int,
+    module: Optional[str],
+    *,
+    is_package: bool = False,
+) -> str:
+    package_parts = current_module.split(".") if is_package else current_module.split(".")[:-1]
     if level > 0:
         trim = max(level - 1, 0)
         if trim:
@@ -361,7 +367,12 @@ def scan_python_dependencies(root: Path, files: Sequence[Path]) -> Tuple[Set[str
                 targets.extend(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom):
                 if node.level:
-                    base = resolve_relative_python(current_module, node.level, node.module)
+                    base = resolve_relative_python(
+                        current_module,
+                        node.level,
+                        node.module,
+                        is_package=path.name == "__init__.py",
+                    )
                 else:
                     base = node.module or ""
                 if base:
