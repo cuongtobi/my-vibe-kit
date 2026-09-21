@@ -49,7 +49,9 @@ def write_text_safe(
                 return "unchanged"
         except (OSError, UnicodeDecodeError):
             pass
-        if protect_existing or not force:
+        if protect_existing:
+            return "preserved"
+        if not force:
             return "conflict"
     if dry_run:
         return "would-write"
@@ -69,7 +71,9 @@ def copy_file_safe(
     if dst.exists():
         if same_content(src, dst):
             return "unchanged"
-        if protect_existing or not force:
+        if protect_existing:
+            return "preserved"
+        if not force:
             return "conflict"
     if dry_run:
         return "would-write"
