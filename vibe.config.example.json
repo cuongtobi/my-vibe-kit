@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "context": {
+    "max_dependency_depth": 3,
+    "max_files": 20000
+  },
+  "dependency": {
+    "fail_on_new_cycles": true
+  },
+  "verification": {
+    "require_commands": true,
+    "commands": []
+  },
+  "tasks": {
+    "keep_history": true
+  }
+}
