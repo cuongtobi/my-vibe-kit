@@ -125,6 +125,24 @@ For installing the kit:
 
 The kit runtime itself is standard-library-only. Your target repository can still use any language/toolchain.
 
+## Agent compatibility
+
+| Surface | Project skills | Personal/global skills | Notes |
+| --- | --- | --- | --- |
+| Codex desktop app / CLI / IDE | `.agents/skills/` | `~/.agents/skills/` | Codex desktop shares the Codex skills/config ecosystem with CLI/IDE. |
+| Claude Code | `.claude/skills/` | `~/.claude/skills/` | Filesystem discovery is native to Claude Code. |
+| Claude app / claude.ai | upload ZIP | upload ZIP | Run `python install.py --bundle-claude`, then upload the desired skill in the product UI. |
+| Antigravity IDE | `.agents/skills/` | `~/.gemini/config/skills/` | Project install also adds rules and slash workflows. |
+| Antigravity CLI | `.agents/skills/` | `~/.gemini/antigravity-cli/skills/` compatibility copy | Project scope is recommended because it travels with the repo. |
+
+For **full deterministic context/dependency/verification**, install the kit into each repository. A global skill install gives the agent the workflow everywhere, but a project install is what adds `.vibe/tools/`, `.vibe/config.json`, task storage, and repository-local verification configuration.
+
+Current format/location references:
+
+- OpenAI Skills: https://developers.openai.com/docs/build-skills
+- Anthropic Agent Skills: https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview
+- Google Antigravity Skills: https://codelabs.developers.google.com/getting-started-with-antigravity-skills
+
 ## Quick start
 
 Clone the kit once:
@@ -184,7 +202,11 @@ This installs skills under:
 ~/.agents/skills/
 ```
 
-Use from Codex CLI/IDE by describing the task normally, or explicitly ask it to use the `vibe`, `plan`, `build`, or `verify` skill.
+### Codex desktop app
+
+Codex desktop uses the same Codex skills/config ecosystem as CLI/IDE. Install the skills globally or into the repository, restart/reopen the project if the skills were added while Codex was already running, and open the local repository in the Codex view. The repository-local install is recommended because the deterministic runtime and task context travel with the project.
+
+Use from Codex desktop/CLI/IDE by describing the task normally, or explicitly ask it to use the `vibe`, `plan`, `build`, or `verify` skill.
 
 Example:
 
@@ -634,11 +656,12 @@ By default the installer:
 
 - creates missing managed files,
 - leaves unrelated project files untouched,
-- refuses to overwrite a different existing managed destination,
-- reports conflicts,
+- preserves an existing project-owned `AGENTS.md`, `CLAUDE.md`, and `.vibe/config.json`,
+- refuses to overwrite a different kit-managed destination,
+- reports true managed-file conflicts,
 - supports `--dry-run`.
 
-Use `--force` only after reviewing what will change.
+`--force` refreshes kit-managed skills/runtime/integration files. It still does **not** overwrite your project-owned instructions or config. Review the target repository diff before committing.
 
 ## Suggested daily use
 
