@@ -52,6 +52,18 @@ class VibeCoreTests(unittest.TestCase):
         self.assertIn("pkg/a.py", impact["affected_reverse_dependencies"])
         self.assertIn("tests/test_a.py", impact["affected_tests"])
 
+    def test_package_init_relative_import_is_resolved(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        pkg = root / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("from .a import value\n", encoding="utf-8")
+        (pkg / "a.py").write_text("value = 1\n", encoding="utf-8")
+
+        graph = vibe_core.dependency_graph(root)
+        edges = {(item["from"], item["to"]) for item in graph["edges"]}
+        self.assertIn(("pkg/__init__.py", "pkg/a.py"), edges)
+
     def test_new_cycle_is_detected_in_dependency_diff(self):
         temp, root = self.make_repo()
         self.addCleanup(temp.cleanup)
