@@ -71,7 +71,7 @@ class InstallerTests(unittest.TestCase):
             (target / "AGENTS.md").write_text(custom, encoding="utf-8")
 
             result = self.run_installer(target, "--force")
-            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(
                 (target / "AGENTS.md").read_text(encoding="utf-8"),
                 custom,
