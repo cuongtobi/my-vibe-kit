@@ -80,6 +80,11 @@ class InstallerTests(unittest.TestCase):
             self.assertIn("runtime/", vibe_gitignore)
             self.assertIn("state/", vibe_gitignore)
             self.assertTrue((target / ".vibe/tools/vibe_state.py").exists())
+            self.assertTrue((target / ".vibe/adapters/languages/python.json").exists())
+            self.assertTrue((target / ".vibe/adapters/languages/typescript.json").exists())
+            self.assertFalse((target / ".vibe/adapters/python.json").exists())
+            self.assertFalse((target / ".vibe/adapters/typescript.json").exists())
+            self.assertFalse((target / ".vibe/adapters/generic.json").exists())
 
     def test_laravel_install_detects_stack_and_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
