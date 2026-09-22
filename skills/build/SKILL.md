@@ -13,8 +13,22 @@ Implement the approved plan with the smallest correct diff.
 
 1. Read `AGENTS.md`.
 2. Read the current task plan and impact data when present under `.vibe/tasks/` or `.vibe/runtime/`.
-3. Confirm the target scope and constraints.
-4. If new evidence changes the scope materially, update impact analysis before editing outside the plan.
+3. Read `.vibe/runtime/architecture-policy.json` when present.
+4. Confirm the target scope and constraints.
+5. If new evidence changes the scope materially, update impact analysis before editing outside the plan.
+
+## Architecture and clean-code rules
+
+For greenfield/new modules, follow the effective architecture policy:
+
+- Default: feature-first + modular layered + framework-native conventions.
+- Standard dependency direction: presentation/transport -> application/service -> domain/data boundary.
+- Keep controllers/routes/handlers thin.
+- Keep non-trivial business logic out of transport/UI and framework glue.
+- Prefer feature/module cohesion over one global folder per technical layer.
+- Use repositories, interfaces, ports, adapters, and extra abstraction only when a real boundary/variation/testing need justifies them.
+- If the effective profile is `strict`, use the policy's Clean/Hexagonal inward dependency rules and keep framework/infrastructure at the edges.
+- Apply the clean-code rules in `architecture-policy.json`: intent-revealing names, focused functions/modules, low nesting, explicit errors/dependencies, no hidden global mutable state, behavior-focused tests, and simple code over clever code.
 
 ## Implementation rules
 
