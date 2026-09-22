@@ -104,9 +104,10 @@ The workflow is language-agnostic. The runtime adds stack-aware adapters and bas
 | Java/Kotlin | package/import graph | Spring |
 | Go | module-local import graph | Gin, Fiber |
 | Rust | mod + `crate::use` graph | Actix Web |
+| Ruby | literal `require` / `require_relative` graph | Ruby on Rails |
 | Other | project/file map | generic fallback |
 
-Framework adapters add route/component/controller/model/provider context and framework-specific verification guidance. Frontend adapters understand components, hooks/composables/stores, file-system routes, and server/client boundaries. The WordPress CMS adapter understands plugins, themes, hooks/filters/shortcodes, REST routes, blocks, templates, and WordPress integration boundaries.
+Framework adapters add route/component/controller/model/provider context and framework-specific verification guidance. Frontend adapters understand components, hooks/composables/stores, file-system routes, and server/client boundaries. The WordPress CMS adapter understands plugins, themes, hooks/filters/shortcodes, REST routes, blocks, templates, and WordPress integration boundaries. The Rails adapter understands conventional controllers/models/services/jobs/mailers/policies, routes, ActiveRecord boundaries, and Zeitwerk-aware architecture guidance; the static dependency baseline intentionally limits itself to explicit local `require` / `require_relative` edges.
 
 The runtime resolves:
 
@@ -120,7 +121,7 @@ active-adapter.json
 plan / impact / build / verify
 ```
 
-The four core skills therefore do not need separate Flask/Laravel/React/WordPress/etc. variants.
+The four core skills therefore do not need separate Flask/Laravel/Rails/React/WordPress/etc. variants.
 
 For frontend stacks, adapters are composable. A TypeScript + React + Vite project can activate all three relevant layers; a Next.js project can activate Next.js plus React, while architecture guidance prioritizes the meta-framework. Likewise Nuxt is prioritized over Vue and SvelteKit over Svelte. Vite remains a tooling adapter rather than the source of application architecture.
 
@@ -201,7 +202,7 @@ ports
 infrastructure adapters
 ```
 
-Framework conventions still win over generic architecture ceremony. Laravel stays Laravel-native, Django stays app-oriented, NestJS stays module/provider-oriented, Spring prefers package-by-feature, and so on.
+Framework conventions still win over generic architecture ceremony. Laravel stays Laravel-native, Rails stays convention-first with ActiveRecord/Zeitwerk boundaries, Django stays app-oriented, NestJS stays module/provider-oriented, Spring prefers package-by-feature, and so on.
 
 The resolved policy is materialized to:
 
@@ -962,6 +963,7 @@ Examples:
 - Python — Ruff, Pyright/mypy, pytest when declared.
 - Django — `python manage.py check` plus Django tests where appropriate.
 - Laravel/PHP — Composer scripts, PHPStan/Larastan, Pest/PHPUnit, `php artisan test`.
+- Ruby/Rails — RuboCop and RSpec when declared; otherwise Rails uses `bundle exec rails test`.
 - Java/Spring — Maven/Gradle tests.
 - Go — `go test ./...`.
 - Rust — `cargo check`, `cargo test`.

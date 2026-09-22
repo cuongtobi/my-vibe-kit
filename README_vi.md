@@ -104,9 +104,10 @@ Workflow độc lập ngôn ngữ. Runtime có stack adapter và dependency scan
 | Java/Kotlin | package/import graph | Spring |
 | Go | module-local import graph | Gin, Fiber |
 | Rust | mod + `crate::use` graph | Actix Web |
+| Ruby | graph `require` / `require_relative` literal | Ruby on Rails |
 | Khác | project/file map | generic fallback |
 
-Framework adapter bổ sung context như route, component, controller, model, provider và gợi ý verification riêng cho framework. Frontend adapter hiểu component, hook/composable/store, file-system route và server/client boundary. WordPress CMS adapter hiểu plugin, theme, hook/filter/shortcode, REST route, block, template và boundary tích hợp của WordPress.
+Framework adapter bổ sung context như route, component, controller, model, provider và gợi ý verification riêng cho framework. Frontend adapter hiểu component, hook/composable/store, file-system route và server/client boundary. WordPress CMS adapter hiểu plugin, theme, hook/filter/shortcode, REST route, block, template và boundary tích hợp của WordPress. Rails adapter hiểu controller/model/service/job/mailer/policy theo convention, route, boundary ActiveRecord và guidance kiến trúc có tính đến Zeitwerk; dependency baseline tĩnh cố ý chỉ ghi các edge local `require` / `require_relative` explicit.
 
 Runtime resolve:
 
@@ -120,7 +121,7 @@ active-adapter.json
 plan / impact / build / verify
 ```
 
-Vì vậy 4 skill cốt lõi không cần tạo bản riêng cho Flask/Laravel/React/WordPress...
+Vì vậy 4 skill cốt lõi không cần tạo bản riêng cho Flask/Laravel/Rails/React/WordPress...
 
 Với frontend, adapter có thể merge nhiều lớp. Project TypeScript + React + Vite có thể active cả ba; project Next.js có thể active Next.js + React nhưng architecture guidance ưu tiên meta-framework. Tương tự Nuxt được ưu tiên hơn Vue và SvelteKit ưu tiên hơn Svelte. Vite chỉ là tooling adapter, không quyết định application architecture.
 
@@ -962,6 +963,7 @@ Ví dụ:
 - Python — Ruff, Pyright/mypy, pytest khi đã khai báo.
 - Django — `python manage.py check` và Django tests khi phù hợp.
 - Laravel/PHP — Composer scripts, PHPStan/Larastan, Pest/PHPUnit, `php artisan test`.
+- Ruby/Rails — RuboCop và RSpec khi đã khai báo; nếu không có RSpec thì Rails dùng `bundle exec rails test`.
 - Java/Spring — Maven/Gradle tests.
 - Go — `go test ./...`.
 - Rust — `cargo check`, `cargo test`.

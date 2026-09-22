@@ -101,6 +101,7 @@ class VibeCoreTests(unittest.TestCase):
             ("nextjs", {"package.json": json.dumps({"dependencies": {"next": "^16.0.0", "react": "^19.0.0"}})}),
             ("wordpress", {"sample-plugin.php": "<?php\n/*\nPlugin Name: Sample Plugin\n*/\n"}),
             ("laravel", {"composer.json": json.dumps({"require": {"laravel/framework": "^12.0"}}), "artisan": ""}),
+            ("rails", {"Gemfile": "source 'https://rubygems.org'\ngem 'rails', '~> 8.0'\n", "bin/rails": "#!/usr/bin/env ruby\n"}),
             ("spring", {"pom.xml": "<dependency>org.springframework.boot:spring-boot-starter-web</dependency>"}),
             ("gin", {"go.mod": "module example.com/app\nrequire github.com/gin-gonic/gin v1.10.0\n"}),
             ("actix-web", {"Cargo.toml": "[dependencies]\nactix-web = \"4\"\n"}),
@@ -238,6 +239,68 @@ class VibeCoreTests(unittest.TestCase):
         self.assertIn("php-static", graph["scanners"])
         impact = vibe_core.impact_analysis(root, ["app/Services/OrderService.php"])
         self.assertTrue(any(route["path"] == "/orders" for route in impact["affected_routes"]))
+
+    def test_rails_framework_context_ruby_dependency_graph_and_architecture(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "Gemfile").write_text(
+            "source 'https://rubygems.org'\ngem 'rails', '~> 8.0'\ngem 'rspec-rails'\ngem 'rubocop-rails'\n",
+            encoding="utf-8",
+        )
+        language_adapters = root / ".vibe" / "adapters" / "languages"
+        framework_adapters = root / ".vibe" / "adapters" / "frameworks"
+        language_adapters.mkdir(parents=True)
+        framework_adapters.mkdir(parents=True)
+        (language_adapters / "ruby.json").write_text(
+            json.dumps({"id": "ruby", "kind": "language"}), encoding="utf-8"
+        )
+        (framework_adapters / "rails.json").write_text(
+            json.dumps({"id": "rails", "kind": "framework"}), encoding="utf-8"
+        )
+        (root / "bin").mkdir()
+        (root / "bin" / "rails").write_text("#!/usr/bin/env ruby\n", encoding="utf-8")
+        (root / "config").mkdir()
+        (root / "config" / "application.rb").write_text(
+            "class Application < Rails::Application\nend\n", encoding="utf-8"
+        )
+        (root / "config" / "routes.rb").write_text(
+            "get '/orders', to: 'orders#index'\nresources :accounts\n", encoding="utf-8"
+        )
+        controllers = root / "app" / "controllers"
+        services = root / "app" / "services"
+        models = root / "app" / "models"
+        controllers.mkdir(parents=True)
+        services.mkdir(parents=True)
+        models.mkdir(parents=True)
+        (controllers / "orders_controller.rb").write_text(
+            "require_relative '../services/order_service'\nclass OrdersController\nend\n",
+            encoding="utf-8",
+        )
+        (services / "order_service.rb").write_text("class OrderService\nend\n", encoding="utf-8")
+        (models / "order.rb").write_text("class Order < ApplicationRecord\nend\n", encoding="utf-8")
+
+        context = vibe_core.project_context(root)
+        self.assertEqual(context["stack"]["primary"], "ruby")
+        self.assertIn("rails", context["frameworks"])
+        self.assertEqual(context["active_adapter"]["language"], "ruby")
+        self.assertIn("rails", context["active_adapter"]["frameworks"])
+
+        framework = json.loads((root / ".vibe/runtime/framework-map.json").read_text(encoding="utf-8"))
+        self.assertIn("app/controllers/orders_controller.rb", framework["components"]["rails_controllers"])
+        self.assertIn("app/models/order.rb", framework["components"]["rails_models"])
+        self.assertIn("app/services/order_service.rb", framework["components"]["rails_services"])
+        self.assertTrue(any(route["framework"] == "rails" and route["path"] == "/orders" for route in framework["routes"]))
+        self.assertTrue(any(route["framework"] == "rails" and route["path"] == "/accounts" for route in framework["routes"]))
+
+        graph = vibe_core.dependency_graph(root)
+        edges = {(item["from"], item["to"]) for item in graph["edges"]}
+        self.assertIn("ruby-require", graph["scanners"])
+        self.assertIn(("app/controllers/orders_controller.rb", "app/services/order_service.rb"), edges)
+
+        policy = vibe_core.architecture_policy(root)
+        rails_guidance = [item for item in policy["framework_guidance"] if item["framework"] == "rails"]
+        self.assertTrue(rails_guidance)
+        self.assertTrue(any("Rails conventions" in note for note in rails_guidance[0]["notes"]))
 
     def test_java_go_and_rust_dependency_scanners(self):
         fixtures = []
