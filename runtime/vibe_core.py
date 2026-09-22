@@ -280,6 +280,9 @@ MANIFEST_NAMES = {
     "build.gradle",
     "build.gradle.kts",
     "global.json",
+    "Gemfile",
+    "Gemfile.lock",
+    "Rakefile",
 }
 
 
@@ -296,7 +299,7 @@ def _file_record(root: Path, path: Path) -> Optional[Dict[str, object]]:
         "extension": suffix,
         "source": suffix in SOURCE_EXTENSIONS,
         "test": suffix in SOURCE_EXTENSIONS and is_test_file(rel),
-        "manifest": path.name in MANIFEST_NAMES,
+        "manifest": path.name in MANIFEST_NAMES or path.suffix.lower() == ".gemspec",
     }
 
 
@@ -770,6 +773,8 @@ def _dependency_payload(
         scanners.append("go-module-imports")
     if ".rs" in suffixes:
         scanners.append("rust-mod-use")
+    if ".rb" in suffixes:
+        scanners.append("ruby-require")
 
     return {
         "generated_at": utc_now(),
@@ -782,7 +787,7 @@ def _dependency_payload(
         "cycles": strongly_connected_components(nodes, edges),
         "limitations": [
             "Static baseline only: dynamic imports, runtime dependency injection, reflection, generated code, framework registries, macros, and non-relative JS/TS aliases may require native analyzers.",
-            "Python/JavaScript/TypeScript refresh changed files, or the affected language slice when source paths are added, removed, or renamed; PHP/Java/Kotlin/Go/Rust refresh the affected language slice when those files or their module manifest change.",
+            "Python/JavaScript/TypeScript refresh changed files, or the affected language slice when source paths are added, removed, or renamed; PHP/Java/Kotlin/Go/Rust/Ruby refresh the affected language slice when those files or their module manifest change.",
         ],
         "primary_language": stack.get("primary"),
         "cache": cache_meta,
@@ -904,10 +909,13 @@ def dependency_graph(root: Path, force: bool = False) -> Dict[str, object]:
             ({".java", ".kt", ".kts"}, {"pom.xml", "build.gradle", "build.gradle.kts"}),
             ({".go"}, {"go.mod"}),
             ({".rs"}, {"Cargo.toml"}),
+            ({".rb"}, {"Gemfile", "Gemfile.lock", "Rakefile"}),
         ]
         for extensions, manifests in language_groups:
             needs_refresh = any(Path(path).suffix.lower() in extensions for path in changed)
             needs_refresh = needs_refresh or any(Path(path).name in manifests for path in changed)
+            if ".rb" in extensions:
+                needs_refresh = needs_refresh or any(Path(path).suffix.lower() == ".gemspec" for path in changed)
             if not needs_refresh:
                 continue
             old_group = {node for node in nodes if Path(node).suffix.lower() in extensions}

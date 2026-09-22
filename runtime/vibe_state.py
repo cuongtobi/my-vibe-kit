@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 STATE_SCHEMA_VERSION = 1
-SCANNER_VERSION = "incremental-v3"
+SCANNER_VERSION = "incremental-v4"
 
 CACHE_FILES = {
     "context": "last-context.json",

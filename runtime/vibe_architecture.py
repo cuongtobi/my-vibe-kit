@@ -124,6 +124,11 @@ FRAMEWORK_GUIDANCE = {
         "strict": ["framework routes/controllers", "application use-cases + ports", "domain", "Laravel infrastructure adapters", "policies/jobs/events", "tests"],
         "notes": ["Follow Laravel conventions before generic Clean Architecture conventions.", "Do not create a repository for every Eloquent model by default."],
     },
+    "rails": {
+        "standard": ["Rails routes", "controllers", "models/ActiveRecord", "services for non-trivial workflows", "jobs/mailers/policies", "tests"],
+        "strict": ["Rails routes/controllers", "application use-cases + ports", "domain", "ActiveRecord/infrastructure adapters", "jobs/mailers/policies", "tests"],
+        "notes": ["Follow Rails conventions and Zeitwerk autoloading before generic architecture ceremony.", "Do not wrap every ActiveRecord model in a repository by default.", "Keep callbacks and controllers thin when workflows become non-trivial."],
+    },
     "spring": {
         "standard": ["package-by-feature", "controller", "service/application", "repository", "domain", "tests"],
         "strict": ["package-by-feature", "presentation controller", "application use-cases + ports", "domain", "Spring infrastructure adapters", "tests"],
@@ -154,6 +159,7 @@ LANGUAGE_FALLBACK = {
     "java": ["package-by-feature", "controller/entrypoint", "service/application", "repository", "domain", "tests"],
     "go": ["feature/package", "handler/entrypoint", "service/application", "repository/data adapter", "tests"],
     "rust": ["feature/module", "handler/entrypoint", "service/application", "repository/adapter", "domain types", "tests"],
+    "ruby": ["feature/module", "entrypoint/controller", "service/application", "model/data access when needed", "tests"],
     "generic": ["feature/module", "entrypoint", "application/service", "data/infrastructure when needed", "tests"],
 }
 

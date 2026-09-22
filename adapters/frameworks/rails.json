@@ -1,0 +1,9 @@
+{
+  "id": "rails",
+  "kind": "framework",
+  "language": "ruby",
+  "detect": ["Gemfile dependency rails", "bin/rails", "config/application.rb + config/routes.rb"],
+  "context": ["routes", "controllers", "models", "services", "jobs", "mailers", "policies", "channels", "migrations"],
+  "architecture_hints": ["prefer Rails conventions and Zeitwerk autoloading", "treat ActiveRecord schema/associations/callbacks as persistence boundaries", "keep controllers and callbacks thin for non-trivial workflows"],
+  "verification": ["bundle exec rails test", "bundle exec rspec when configured", "bundle exec rubocop when configured", "bundle exec rails zeitwerk:check when appropriate"]
+}

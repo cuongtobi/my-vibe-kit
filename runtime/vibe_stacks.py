@@ -44,15 +44,23 @@ def _python_text(root: Path) -> str:
     return '\n'.join(_text(root / n).lower() for n in names)
 
 
+def _ruby_text(root: Path) -> str:
+    texts = [_text(root / name).lower() for name in ('Gemfile', 'Gemfile.lock')]
+    texts.extend(_text(path).lower() for path in sorted(root.glob('*.gemspec')))
+    return '\n'.join(texts)
+
+
 def detect_stack(root: Path) -> Dict[str, object]:
     markers = {
         'python':['pyproject.toml','requirements.txt','setup.py','setup.cfg','Pipfile'],
         'javascript':['package.json'], 'typescript':['tsconfig.json'], 'php':['composer.json','wp-config.php'],
         'java':['pom.xml','build.gradle','build.gradle.kts'], 'go':['go.mod'], 'rust':['Cargo.toml'],
-        'dotnet':['global.json'],
+        'ruby':['Gemfile','Gemfile.lock','Rakefile','.ruby-version'], 'dotnet':['global.json'],
     }
     found = {k:[n for n in v if (root/n).exists()] for k,v in markers.items()}
     found = {k:v for k,v in found.items() if v}
+    root_ruby = sorted([p.name for p in root.glob('*.rb') if p.is_file()] + [p.name for p in root.glob('*.gemspec') if p.is_file()])
+    if 'ruby' not in found and root_ruby: found['ruby'] = root_ruby
     root_php = sorted(p.name for p in root.glob('*.php') if p.is_file())
     style_text = _text(root/'style.css')
     plugin_header = any(re.search(r'(?mi)^\s*Plugin Name\s*:', _text(root/name)) for name in root_php)
@@ -60,7 +68,7 @@ def detect_stack(root: Path) -> Dict[str, object]:
     standalone_wordpress = plugin_header or theme_header
     if ('php' not in found) and ((root/'wp-content').exists() or standalone_wordpress or root_php):
         found['php'] = root_php or ['wp-content']
-    order = ['typescript','javascript','python','php','java','go','rust','dotnet']
+    order = ['typescript','javascript','python','php','ruby','java','go','rust','dotnet']
     primary = next((x for x in order if x in found), sorted(found)[0] if found else 'generic')
     frameworks, evidence = [], {}
     py = _python_text(root)
@@ -90,6 +98,13 @@ def detect_stack(root: Path) -> Dict[str, object]:
     if wordpress_composer or wordpress_marker:
         frameworks.append('wordpress')
         evidence['wordpress']=['WordPress core/composer dependency, wp-config.php/wp-content marker, or plugin/theme header']
+    ruby = _ruby_text(root)
+    rails_dependency = bool(re.search(r'''(?mi)^\s*gem\s+["']rails["']''', ruby) or re.search(r'(?mi)^\s+rails\s+\(', ruby))
+    rails_marker = (root/'bin'/'rails').exists() or ((root/'config'/'application.rb').exists() and (root/'config'/'routes.rb').exists())
+    if rails_dependency or rails_marker:
+        frameworks.append('rails'); evidence['rails']=['rails gem or Rails application marker']
+        if 'ruby' not in found: found['ruby'] = ['Rails application marker']
+        primary = 'ruby'
     java = '\n'.join(_text(root/n).lower() for n in ['pom.xml','build.gradle','build.gradle.kts'])
     if 'spring-boot' in java or 'org.springframework' in java: frameworks.append('spring'); evidence['spring']=['Spring dependency']
     gomod = _text(root/'go.mod').lower()
@@ -117,6 +132,12 @@ def discover_verification_commands(root: Path) -> List[List[str]]:
         commands.append(['python','manage.py','check'])
         if 'pytest' not in py:
             commands.append(['python','manage.py','test'])
+    stack = detect_stack(root); ruby = _ruby_text(root)
+    if 'ruby' in (stack.get('languages') or []):
+        if re.search(r'''(?mi)^\s*gem\s+["']rubocop(?:-rails)?["']''', ruby): commands.append(['bundle','exec','rubocop'])
+        has_rspec = bool(re.search(r'''(?mi)^\s*gem\s+["'](?:rspec|rspec-rails)["']''', ruby) or (root/'.rspec').exists())
+        if has_rspec: commands.append(['bundle','exec','rspec'])
+        elif 'rails' in (stack.get('frameworks') or []): commands.append(['bundle','exec','rails','test'])
     composer = _json(root/'composer.json'); comptext = json.dumps(composer).lower() if composer else ''
     if composer:
         scripts = composer.get('scripts') or {}
@@ -177,6 +198,8 @@ GO_BLOCK_RE=re.compile(r'import\s*\((.*?)\)',re.S)
 GO_LINE_RE=re.compile(r'(?:[A-Za-z0-9_.]+\s+)?"([^"]+)"')
 RUST_MOD_RE=re.compile(r'^\s*(?:pub\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;',re.M)
 RUST_USE_RE=re.compile(r'^\s*(?:pub\s+)?use\s+crate::([^;{]+)',re.M)
+RUBY_REQUIRE_RELATIVE_RE=re.compile(r'''^\s*require_relative\s*\(?\s*["']([^"']+)["']\s*\)?''',re.M)
+RUBY_REQUIRE_RE=re.compile(r'''^\s*require\s*\(?\s*["']([^"']+)["']\s*\)?''',re.M)
 
 
 def scan_php_dependencies(root: Path, files: Sequence[Path]) -> Tuple[Set[str],Set[Tuple[str,str]]]:
@@ -254,9 +277,31 @@ def scan_rust_dependencies(root: Path, files: Sequence[Path]) -> Tuple[Set[str],
     return nodes,edges
 
 
+def scan_ruby_dependencies(root: Path, files: Sequence[Path]) -> Tuple[Set[str],Set[Tuple[str,str]]]:
+    items=[p for p in files if p.suffix.lower()=='.rb']; nodes={p.relative_to(root).as_posix() for p in items}; edges=set(); require_map={}; resolved_root=root.resolve()
+    for p in items:
+        rel=p.relative_to(root).as_posix(); key=rel[:-3] if rel.endswith('.rb') else rel; require_map[key]=rel
+        if key.startswith('lib/'): require_map[key[4:]]=rel
+    for p in items:
+        src=p.relative_to(root).as_posix(); text=_text(p)
+        for m in RUBY_REQUIRE_RELATIVE_RE.finditer(text):
+            candidate=p.parent/m.group(1)
+            if not candidate.suffix: candidate=Path(str(candidate)+'.rb')
+            candidate=candidate.resolve()
+            try: rel=candidate.relative_to(resolved_root).as_posix()
+            except ValueError: continue
+            if candidate.is_file() and rel in nodes and rel!=src: edges.add((src,rel))
+        for m in RUBY_REQUIRE_RE.finditer(text):
+            key=m.group(1).replace('\\','/')
+            if key.endswith('.rb'): key=key[:-3]
+            dst=require_map.get(key.lstrip('./'))
+            if dst and dst!=src: edges.add((src,dst))
+    return nodes,edges
+
+
 def scan_polyglot_dependencies(root: Path, files: Sequence[Path]) -> Tuple[Set[str],Set[Tuple[str,str]],List[str]]:
     nodes=set(); edges=set(); scanners=[]
-    for name,fn in [('php-static',scan_php_dependencies),('java-kotlin-imports',scan_java_dependencies),('go-module-imports',scan_go_dependencies),('rust-mod-use',scan_rust_dependencies)]:
+    for name,fn in [('php-static',scan_php_dependencies),('java-kotlin-imports',scan_java_dependencies),('go-module-imports',scan_go_dependencies),('rust-mod-use',scan_rust_dependencies),('ruby-require',scan_ruby_dependencies)]:
         n,e=fn(root,files)
         if n: nodes.update(n); edges.update(e); scanners.append(name)
     return nodes,edges,scanners
@@ -273,6 +318,8 @@ SPRING_PATH_RE=re.compile(r'(?:value\s*=\s*|path\s*=\s*)?[\'"]([^\'"]+)[\'"]')
 GO_ROUTE_RE=re.compile(r'\b(?:[A-Za-z_][A-Za-z0-9_]*\.)?(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD|Get|Post|Put|Patch|Delete|Options|Head)\s*\(\s*["`]([^"`]+)["`]')
 ACTIX_RE=re.compile(r'#\s*\[\s*(get|post|put|patch|delete|head)\s*\(\s*"([^"]+)"\s*\)\s*\]',re.I)
 WORDPRESS_REST_RE=re.compile(r'register_rest_route\s*\(\s*[\'\"]([^\'\"]+)[\'\"]\s*,\s*[\'\"]([^\'\"]+)[\'\"]',re.I)
+RAILS_HTTP_ROUTE_RE=re.compile(r'''^\s*(get|post|put|patch|delete|options|head|match)\s+\(?\s*["']([^"']+)["']''',re.M|re.I)
+RAILS_RESOURCE_ROUTE_RE=re.compile(r'''^\s*(resources?)\s+(?::([A-Za-z_][A-Za-z0-9_]*)|["']([^"']+)["'])''',re.M|re.I)
 
 
 def framework_context(root: Path, files: Optional[Sequence[Path]]=None) -> Dict[str,object]:
@@ -344,6 +391,16 @@ def framework_context(root: Path, files: Optional[Sequence[Path]]=None) -> Dict[
         components['wordpress_themes']=sorted(theme_files)
         components['wordpress_hook_files']=sorted(hooks)
         routes.extend(rest_routes)
+    if 'rails' in frameworks:
+        for p in fs:
+            rel=p.relative_to(root)
+            if p.suffix.lower()=='.rb' and rel.as_posix()=='config/routes.rb':
+                text=_text(p)
+                for m in RAILS_HTTP_ROUTE_RE.finditer(text): routes.append({'framework':'rails','file':rel.as_posix(),'method':m.group(1).upper(),'path':m.group(2)})
+                for m in RAILS_RESOURCE_ROUTE_RE.finditer(text):
+                    name=m.group(2) or m.group(3); routes.append({'framework':'rails','file':rel.as_posix(),'method':m.group(1).upper(),'path':'/'+name.strip('/')})
+        for label,prefix in [('rails_controllers',('app','controllers')),('rails_models',('app','models')),('rails_services',('app','services')),('rails_jobs',('app','jobs')),('rails_mailers',('app','mailers')),('rails_policies',('app','policies')),('rails_channels',('app','channels')),('rails_migrations',('db','migrate'))]:
+            components[label]=sorted(p.relative_to(root).as_posix() for p in fs if p.suffix.lower()=='.rb' and p.relative_to(root).parts[:len(prefix)]==prefix)
     if 'laravel' in frameworks:
         for p in fs:
             rel=p.relative_to(root)

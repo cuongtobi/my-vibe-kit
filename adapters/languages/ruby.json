@@ -1,0 +1,9 @@
+{
+  "id": "ruby",
+  "kind": "language",
+  "extensions": [".rb"],
+  "manifests": ["Gemfile", "Gemfile.lock", "Rakefile", "*.gemspec"],
+  "dependency": {"baseline": "literal-require-require_relative-graph", "recommended": ["packwerk", "zeitwerk"]},
+  "verification": {"recommended": ["rubocop", "rspec-or-minitest", "bundle-exec-rake"]},
+  "framework_candidates": ["rails"]
+}
