@@ -1,0 +1,14 @@
+{
+  "id": "generic",
+  "kind": "language",
+  "extensions": [],
+  "manifests": [],
+  "dependency": {
+    "baseline": "project-map",
+    "recommended": ["language-native-static-analysis"]
+  },
+  "verification": {
+    "recommended": ["project-native-lint", "project-native-test", "project-native-build"]
+  },
+  "framework_candidates": []
+}
