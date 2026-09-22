@@ -92,6 +92,14 @@ class VibeCoreTests(unittest.TestCase):
         cases = [
             ("flask", {"pyproject.toml": "[project]\ndependencies = [\"flask\"]\n"}),
             ("express", {"package.json": json.dumps({"dependencies": {"express": "^5.0.0"}})}),
+            ("react", {"package.json": json.dumps({"dependencies": {"react": "^19.0.0"}})}),
+            ("vue", {"package.json": json.dumps({"dependencies": {"vue": "^3.5.0"}})}),
+            ("nuxt", {"package.json": json.dumps({"dependencies": {"nuxt": "^4.0.0", "vue": "^3.5.0"}})}),
+            ("svelte", {"package.json": json.dumps({"dependencies": {"svelte": "^5.0.0"}})}),
+            ("sveltekit", {"package.json": json.dumps({"dependencies": {"@sveltejs/kit": "^2.0.0", "svelte": "^5.0.0"}})}),
+            ("vite", {"package.json": json.dumps({"devDependencies": {"vite": "^7.0.0"}})}),
+            ("nextjs", {"package.json": json.dumps({"dependencies": {"next": "^16.0.0", "react": "^19.0.0"}})}),
+            ("wordpress", {"sample-plugin.php": "<?php\n/*\nPlugin Name: Sample Plugin\n*/\n"}),
             ("laravel", {"composer.json": json.dumps({"require": {"laravel/framework": "^12.0"}}), "artisan": ""}),
             ("spring", {"pom.xml": "<dependency>org.springframework.boot:spring-boot-starter-web</dependency>"}),
             ("gin", {"go.mod": "module example.com/app\nrequire github.com/gin-gonic/gin v1.10.0\n"}),
@@ -107,6 +115,77 @@ class VibeCoreTests(unittest.TestCase):
                         path.write_text(content, encoding="utf-8")
                     stack = vibe_core.detect_stack(root)
                     self.assertIn(expected, stack["frameworks"])
+
+    def test_frontend_framework_context_includes_components_and_file_routes(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "package.json").write_text(
+            json.dumps({
+                "dependencies": {
+                    "react": "^19.0.0",
+                    "next": "^16.0.0",
+                    "vue": "^3.5.0",
+                    "nuxt": "^4.0.0",
+                    "svelte": "^5.0.0",
+                    "@sveltejs/kit": "^2.0.0"
+                },
+                "devDependencies": {"vite": "^7.0.0"}
+            }),
+            encoding="utf-8",
+        )
+        app = root / "app"
+        app.mkdir()
+        (app / "page.tsx").write_text(
+            "'use client'\nexport function HomePage() { return null }\n",
+            encoding="utf-8",
+        )
+        pages = root / "pages"
+        pages.mkdir()
+        (pages / "about.vue").write_text("<template><div>About</div></template>\n", encoding="utf-8")
+        routes = root / "src" / "routes" / "dashboard"
+        routes.mkdir(parents=True)
+        (routes / "+page.svelte").write_text("<h1>Dashboard</h1>\n", encoding="utf-8")
+
+        context = vibe_core.project_context(root)
+        frameworks = set(context["frameworks"])
+        self.assertTrue({"react", "vue", "nuxt", "svelte", "sveltekit", "vite", "nextjs"}.issubset(frameworks))
+
+        framework = json.loads((root / ".vibe/runtime/framework-map.json").read_text(encoding="utf-8"))
+        self.assertIn("app/page.tsx", framework["components"]["react_components"])
+        self.assertIn("pages/about.vue", framework["components"]["vue_components"])
+        self.assertIn("src/routes/dashboard/+page.svelte", framework["components"]["svelte_components"])
+        self.assertTrue(any(route["framework"] == "nextjs" and route["path"] == "/" for route in framework["routes"]))
+        self.assertTrue(any(route["framework"] == "nuxt" and route["path"] == "/about" for route in framework["routes"]))
+        self.assertTrue(any(route["framework"] == "sveltekit" and route["path"] == "/dashboard" for route in framework["routes"]))
+
+        graph = vibe_core.dependency_graph(root)
+        self.assertIn("pages/about.vue", graph["nodes"])
+        self.assertIn("src/routes/dashboard/+page.svelte", graph["nodes"])
+
+    def test_wordpress_plugin_context_and_architecture_guidance(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        plugin = root / "sample-plugin.php"
+        plugin.write_text(
+            "<?php\n/*\nPlugin Name: Sample Plugin\n*/\n"
+            "add_action('init', 'sample_init');\n"
+            "register_rest_route('sample/v1', '/items', []);\n",
+            encoding="utf-8",
+        )
+
+        stack = vibe_core.detect_stack(root)
+        self.assertEqual(stack["primary"], "php")
+        self.assertIn("wordpress", stack["frameworks"])
+
+        context = vibe_core.project_context(root)
+        framework = json.loads((root / ".vibe/runtime/framework-map.json").read_text(encoding="utf-8"))
+        self.assertIn("sample-plugin.php", framework["components"]["wordpress_hook_files"])
+        self.assertTrue(any(route["framework"] == "wordpress" and route["path"] == "/sample/v1/items" for route in framework["routes"]))
+
+        policy = vibe_core.architecture_policy(root)
+        wordpress_guidance = [item for item in policy["framework_guidance"] if item["framework"] == "wordpress"]
+        self.assertTrue(wordpress_guidance)
+        self.assertTrue(any("WordPress core" in note for note in wordpress_guidance[0]["notes"]))
 
     def test_laravel_framework_context_and_php_dependency_graph(self):
         temp, root = self.make_repo()
