@@ -88,18 +88,26 @@ def discover_verification_commands(root: Path) -> List[List[str]]:
         if 'pyright' in py: commands.append(['pyright'])
         elif 'mypy' in py: commands.append(['python','-m','mypy','.'])
         if 'pytest' in py: commands.append(['python','-m','pytest','-q'])
+    if (root/'manage.py').exists():
+        commands.append(['python','manage.py','check'])
+        if 'pytest' not in py:
+            commands.append(['python','manage.py','test'])
     composer = _json(root/'composer.json'); comptext = json.dumps(composer).lower() if composer else ''
     if composer:
         scripts = composer.get('scripts') or {}
         if isinstance(scripts, dict):
             for name in ('lint','analyse','analyze','test'):
                 if name in scripts: commands.append(['composer','run',name])
-        if 'phpstan/phpstan' in comptext or 'nunomaduro/larastan' in comptext: commands.append(['vendor/bin/phpstan','analyse'])
-        if 'pestphp/pest' in comptext: commands.append(['vendor/bin/pest'])
-        elif 'phpunit/phpunit' in comptext: commands.append(['vendor/bin/phpunit'])
+        if 'phpstan/phpstan' in comptext or 'nunomaduro/larastan' in comptext: commands.append(['php','vendor/bin/phpstan','analyse'])
+        if 'pestphp/pest' in comptext: commands.append(['php','vendor/bin/pest'])
+        elif 'phpunit/phpunit' in comptext: commands.append(['php','vendor/bin/phpunit'])
         elif (root/'artisan').exists(): commands.append(['php','artisan','test'])
-    if (root/'pom.xml').exists(): commands.append([('./mvnw' if (root/'mvnw').exists() else 'mvn'),'test'])
-    elif (root/'build.gradle').exists() or (root/'build.gradle.kts').exists(): commands.append([('./gradlew' if (root/'gradlew').exists() else 'gradle'),'test'])
+    if (root/'pom.xml').exists():
+        mvn = 'mvnw.cmd' if os.name == 'nt' and (root/'mvnw.cmd').exists() else ('./mvnw' if (root/'mvnw').exists() else 'mvn')
+        commands.append([mvn,'test'])
+    elif (root/'build.gradle').exists() or (root/'build.gradle.kts').exists():
+        gradle = 'gradlew.bat' if os.name == 'nt' and (root/'gradlew.bat').exists() else ('./gradlew' if (root/'gradlew').exists() else 'gradle')
+        commands.append([gradle,'test'])
     if (root/'go.mod').exists(): commands.append(['go','test','./...'])
     if (root/'Cargo.toml').exists(): commands.extend([['cargo','check'],['cargo','test']])
     out=[]; seen=set()
@@ -107,6 +115,30 @@ def discover_verification_commands(root: Path) -> List[List[str]]:
         t=tuple(c)
         if t not in seen: seen.add(t); out.append(c)
     return out
+
+
+def effective_adapter(root: Path) -> Dict[str, object]:
+    stack = detect_stack(root)
+    bases = [root/'.vibe'/'adapters', root/'adapters']
+    base = next((candidate for candidate in bases if candidate.exists()), None)
+
+    language = None
+    frameworks = []
+    if base is not None:
+        language_path = base/'languages'/(str(stack.get('primary', 'generic')) + '.json')
+        if language_path.exists():
+            language = _json(language_path)
+        for framework in stack.get('frameworks') or []:
+            path = base/'frameworks'/(str(framework) + '.json')
+            if path.exists():
+                frameworks.append(_json(path))
+
+    return {
+        'stack': stack,
+        'language': language or {'id': stack.get('primary', 'generic'), 'kind': 'language'},
+        'frameworks': frameworks,
+        'adapter_source': str(base) if base is not None else None,
+    }
 
 
 PHP_NAMESPACE_RE=re.compile(r'\bnamespace\s+([^;]+);')
