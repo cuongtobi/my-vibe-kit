@@ -98,15 +98,15 @@ Workflow độc lập ngôn ngữ. Runtime có stack adapter và dependency scan
 | Ngôn ngữ | Dependency scan baseline | Framework adapter |
 | --- | --- | --- |
 | Python | AST import graph | Flask, FastAPI, Django |
-| JavaScript | relative import/require graph | Express, Next.js |
-| TypeScript | relative import graph | Express, NestJS, Next.js |
-| PHP | namespace/use + literal require/include graph | Laravel |
+| JavaScript | relative import/require graph | Express, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
+| TypeScript | relative import graph | Express, NestJS, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
+| PHP | namespace/use + literal require/include graph | Laravel, WordPress |
 | Java/Kotlin | package/import graph | Spring |
 | Go | module-local import graph | Gin, Fiber |
 | Rust | mod + `crate::use` graph | Actix Web |
 | Khác | project/file map | generic fallback |
 
-Framework adapter bổ sung context như route, component, controller, model, provider và gợi ý verification riêng cho framework.
+Framework adapter bổ sung context như route, component, controller, model, provider và gợi ý verification riêng cho framework. Frontend adapter hiểu component, hook/composable/store, file-system route và server/client boundary. WordPress CMS adapter hiểu plugin, theme, hook/filter/shortcode, REST route, block, template và boundary tích hợp của WordPress.
 
 Runtime resolve:
 
@@ -120,7 +120,9 @@ active-adapter.json
 plan / impact / build / verify
 ```
 
-Vì vậy 4 skill cốt lõi không cần tạo bản riêng cho Flask/Laravel/Express...
+Vì vậy 4 skill cốt lõi không cần tạo bản riêng cho Flask/Laravel/React/WordPress...
+
+Với frontend, adapter có thể merge nhiều lớp. Project TypeScript + React + Vite có thể active cả ba; project Next.js có thể active Next.js + React nhưng architecture guidance ưu tiên meta-framework. Tương tự Nuxt được ưu tiên hơn Vue và SvelteKit ưu tiên hơn Svelte. Vite chỉ là tooling adapter, không quyết định application architecture.
 
 ## Chính sách kiến trúc
 
@@ -294,6 +296,7 @@ Baseline không dependency ngoài hiện hoạt động như sau:
 
 - Python — chỉ refresh source file đã thay đổi, dùng universe path Python hiện tại/cache để resolve local import.
 - JavaScript/TypeScript — chỉ refresh file đã thay đổi cho relative import/export/require.
+- Vue/Svelte single-file component — vẫn được track như source/context node dù dependency parsing trong embedded script chỉ là best-effort; framework context nhận diện component/route và native tooling vẫn là nguồn chính.
 - PHP — refresh PHP slice khi file PHP hoặc Composer manifest thay đổi.
 - Java/Kotlin — refresh JVM slice khi source JVM hoặc Maven/Gradle manifest thay đổi.
 - Go — refresh Go slice khi file Go hoặc `go.mod` thay đổi.
@@ -443,6 +446,49 @@ Config kiểu v0.4 mặc định được giữ đơn giản:
 ```
 
 Mặc định không dùng SQLite hoặc symbol database bắt buộc.
+
+### Kiến trúc frontend mặc định
+
+Frontend vẫn theo feature-first nhưng **không** bị ép theo ceremony backend kiểu controller/service/repository.
+
+Cấu trúc điển hình:
+
+```text
+route/page shell
+      ↓
+feature UI
+      ↓
+hooks / composables / stores
+      ↓
+API / data adapters
+```
+
+Rule hữu ích:
+
+- page/route shell nên mỏng,
+- business workflow không nên nằm trong presentational component,
+- tránh import internal của feature khác,
+- shared module không phụ thuộc feature internals,
+- tôn trọng server/client boundary trong Next.js, Nuxt và SvelteKit,
+- dùng component/integration test cho UI behavior và chỉ dùng E2E cho critical flow.
+
+### Kiến trúc WordPress mặc định
+
+WordPress được coi là CMS/framework adapter, không chỉ là generic PHP.
+
+Profile standard ưu tiên:
+
+```text
+WordPress hooks / REST / templates
+            ↓
+feature-oriented plugin/theme modules
+            ↓
+services / business behavior
+            ↓
+WordPress APIs / data adapters
+```
+
+Adapter coi hook, filter, shortcode, REST route, block contract, option/meta và boundary plugin/theme là integration contract. Nó ưu tiên WordPress API và custom plugin/theme code thay vì sửa WordPress core.
 
 ## Workflow cốt lõi
 
@@ -699,6 +745,8 @@ Rust:
 - `cargo test`
 
 Graph built-in là baseline zero-setup. Native analyzer vẫn là nguồn chính khi project đã cấu hình.
+
+Với frontend, native tooling hữu ích gồm ESLint, TypeScript/Vue/Svelte type-checker, Vitest/Jest, Testing Library, Playwright/Cypress và framework build command. Với WordPress, nên dùng Composer script, PHPUnit/Pest, PHPStan, PHPCS/WordPress Coding Standards, WP-CLI check và frontend build/test command nếu project đã cấu hình.
 
 ## Dependency snapshot
 
