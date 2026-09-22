@@ -122,8 +122,8 @@ class VibeCoreTests(unittest.TestCase):
 
         java_files = {
             "pom.xml": "<project></project>",
-            "src/main/java/com/example/A.java": "package com.example; import com.example.B; class A {}",
-            "src/main/java/com/example/B.java": "package com.example; class B {}",
+            "src/main/java/com/example/A.java": "package com.example;\nimport com.example.B;\nclass A {}\n",
+            "src/main/java/com/example/B.java": "package com.example;\nclass B {}\n",
         }
         fixtures.append(("java-kotlin-imports", java_files, ("src/main/java/com/example/A.java", "src/main/java/com/example/B.java")))
 
