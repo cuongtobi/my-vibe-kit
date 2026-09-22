@@ -384,7 +384,12 @@ def _file_record(root: Path, path: Path) -> Optional[Dict[str, object]]:
         "extension": suffix,
         "source": source,
         "test": source and is_test_file(rel),
-        "manifest": path.name in MANIFEST_NAMES or path.suffix.lower() == ".gemspec",
+        "manifest": (
+            path.name in MANIFEST_NAMES
+            or path.suffix.lower() == ".gemspec"
+            or path.name == "jsconfig.json"
+            or (path.name.startswith("tsconfig") and path.suffix.lower() == ".json")
+        ),
     }
     if source:
         record.update(_source_search_metadata(path))
@@ -751,7 +756,7 @@ def _jsonc(path: Path) -> Dict[str, object]:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return {}
-    pattern = re.compile(r'("(?:\\.|[^"\\])*")|(/\\*.*?\\*/|//[^\\r\\n]*)', re.S)
+    pattern = re.compile(r'("(?:\\.|[^"\\])*")|(/\*.*?\*/|//[^\r\n]*)', re.S)
     stripped = pattern.sub(lambda match: match.group(1) or "", text)
     try:
         data = json.loads(stripped)
