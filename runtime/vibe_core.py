@@ -14,6 +14,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from vibe_stacks import (
     detect_stack as detect_stack_extended,
+    effective_adapter,
     framework_context,
     scan_polyglot_dependencies,
 )
@@ -268,6 +269,7 @@ def project_context(root: Path) -> Dict[str, object]:
     status = git(root, "status", "--short")
     branch = git(root, "branch", "--show-current")
     framework = framework_context(root, files)
+    adapter = effective_adapter(root)
 
     data = {
         "generated_at": utc_now(),
@@ -275,6 +277,13 @@ def project_context(root: Path) -> Dict[str, object]:
         "stack": detect_stack(root),
         "frameworks": framework.get("frameworks", []),
         "framework_route_count": len(framework.get("routes", [])),
+        "active_adapter": {
+            "language": (adapter.get("language") or {}).get("id"),
+            "frameworks": [
+                item.get("id") for item in (adapter.get("frameworks") or [])
+                if isinstance(item, dict)
+            ],
+        },
         "source_file_count": len(source_files),
         "source_extensions": dict(sorted(counts.items())),
         "manifests": sorted(manifests),
@@ -288,8 +297,10 @@ def project_context(root: Path) -> Dict[str, object]:
     }
     json_dump(runtime_dir(root) / "project-map.json", data)
     json_dump(runtime_dir(root) / "framework-map.json", framework)
+    json_dump(runtime_dir(root) / "active-adapter.json", adapter)
     copy_to_current_task(root, "context.json", data)
     copy_to_current_task(root, "framework.json", framework)
+    copy_to_current_task(root, "active-adapter.json", adapter)
     return data
 
 
