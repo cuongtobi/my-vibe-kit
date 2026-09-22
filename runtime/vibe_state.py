@@ -16,6 +16,7 @@ CACHE_FILES = {
     "adapter": "last-adapter.json",
     "architecture": "last-architecture.json",
     "files": "file-index.json",
+    "hashes": "content-hashes.json",
 }
 
 IGNORED_STATE_PREFIXES = (
@@ -370,11 +371,65 @@ def cache_status(
     }
 
 
+
+def content_hash_index(
+    root: Path,
+    files: Sequence[str],
+    *,
+    extra_files: Sequence[str] = (),
+    force: bool = False,
+) -> Dict[str, str]:
+    """Reuse persisted content hashes and re-hash only repository deltas when possible."""
+    universe = sorted({
+        _normalized(path)
+        for path in list(files) + list(extra_files)
+        if path and not _ignored_state_path(_normalized(path))
+    })
+    refresh = cache_status(root, "hashes", force=force)
+    previous = load_cache(root, "hashes", {})
+    if not isinstance(previous, dict) or not all(
+        isinstance(path, str) and isinstance(value, str)
+        for path, value in previous.items()
+    ):
+        previous = {}
+        refresh = {
+            "mode": "FULL_REBUILD",
+            "reason": "hash-cache-invalid",
+            "changed_files": [],
+            "repo_state": current_repo_state(root),
+        }
+
+    if refresh["mode"] == "CACHE_HIT":
+        hashes = {path: previous[path] for path in universe if path in previous}
+        missing = [path for path in universe if path not in hashes]
+        if not missing:
+            return hashes
+    elif refresh["mode"] == "INCREMENTAL_REFRESH":
+        hashes = {path: previous[path] for path in universe if path in previous}
+        missing = [
+            path for path in universe
+            if path not in hashes or path in set(refresh["changed_files"])
+        ]
+    else:
+        hashes = {}
+        missing = universe
+
+    for relative in missing:
+        digest = _file_sha256(root, relative)
+        if digest:
+            hashes[relative] = digest
+        else:
+            hashes.pop(relative, None)
+
+    hashes = {path: hashes[path] for path in universe if path in hashes}
+    write_cache(root, "hashes", hashes, refresh["repo_state"])
+    return hashes
+
 def state_summary(root: Path) -> Dict[str, object]:
     index = load_index_state(root)
     current = current_repo_state(root)
     artifacts = {}
-    for artifact in ("context", "dependency"):
+    for artifact in ("context", "dependency", "hashes"):
         status = cache_status(root, artifact)
         artifacts[artifact] = {
             "mode": status["mode"],
