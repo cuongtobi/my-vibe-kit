@@ -1,0 +1,9 @@
+{
+  "id": "gin",
+  "kind": "framework",
+  "language": "go",
+  "detect": ["go module github.com/gin-gonic/gin"],
+  "context": ["routes", "route-groups", "middleware", "handlers"],
+  "architecture_hints": ["track route-group middleware inheritance", "keep handlers separate from domain/service logic"],
+  "verification": ["go test ./...", "go vet ./...", "staticcheck-or-golangci-lint"]
+}
