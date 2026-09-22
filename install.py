@@ -12,12 +12,13 @@ from typing import Dict, Iterable, List, Sequence
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "runtime"))
 
+from vibe_architecture import default_architecture_config  # noqa: E402
 from vibe_stacks import (  # noqa: E402
     detect_stack as detect_stack_full,
     discover_verification_commands as discover_verification_commands_full,
 )
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 SUPPORTED_AGENTS = ("codex", "claude", "antigravity")
 
 
@@ -122,8 +123,9 @@ def discover_verification_commands(target: Path) -> List[List[str]]:
 
 def default_config(target: Path) -> Dict[str, object]:
     return {
-        "version": 1,
+        "version": 2,
         "stack": detect_stack(target),
+        "architecture": default_architecture_config(),
         "context": {
             "max_dependency_depth": 3,
             "max_files": 20000,
