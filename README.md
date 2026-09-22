@@ -98,15 +98,15 @@ The workflow is language-agnostic. The runtime adds stack-aware adapters and bas
 | Language | Baseline dependency scan | Framework adapters |
 | --- | --- | --- |
 | Python | AST import graph | Flask, FastAPI, Django |
-| JavaScript | relative import/require graph | Express, Next.js |
-| TypeScript | relative import graph | Express, NestJS, Next.js |
-| PHP | namespace/use + literal require/include graph | Laravel |
+| JavaScript | relative import/require graph | Express, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
+| TypeScript | relative import graph | Express, NestJS, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
+| PHP | namespace/use + literal require/include graph | Laravel, WordPress |
 | Java/Kotlin | package/import graph | Spring |
 | Go | module-local import graph | Gin, Fiber |
 | Rust | mod + `crate::use` graph | Actix Web |
 | Other | project/file map | generic fallback |
 
-Framework adapters add route/component/controller/model/provider context and framework-specific verification guidance.
+Framework adapters add route/component/controller/model/provider context and framework-specific verification guidance. Frontend adapters understand components, hooks/composables/stores, file-system routes, and server/client boundaries. The WordPress CMS adapter understands plugins, themes, hooks/filters/shortcodes, REST routes, blocks, templates, and WordPress integration boundaries.
 
 The runtime resolves:
 
@@ -120,7 +120,9 @@ active-adapter.json
 plan / impact / build / verify
 ```
 
-The four core skills therefore do not need separate Flask/Laravel/Express/etc. variants.
+The four core skills therefore do not need separate Flask/Laravel/React/WordPress/etc. variants.
+
+For frontend stacks, adapters are composable. A TypeScript + React + Vite project can activate all three relevant layers; a Next.js project can activate Next.js plus React, while architecture guidance prioritizes the meta-framework. Likewise Nuxt is prioritized over Vue and SvelteKit over Svelte. Vite remains a tooling adapter rather than the source of application architecture.
 
 ## Architecture policy
 
@@ -294,6 +296,7 @@ The zero-dependency baseline currently behaves as follows:
 
 - Python — refresh changed source files only while using the current/cached Python path universe for local import resolution.
 - JavaScript/TypeScript — refresh changed files for relative import/export/require edges.
+- Vue/Svelte single-file components — tracked as source/context nodes even though embedded-script dependency parsing remains best-effort; framework context identifies components/routes and native tooling remains authoritative.
 - PHP — refresh the PHP slice when PHP files or Composer manifests change.
 - Java/Kotlin — refresh the JVM slice when JVM files or Maven/Gradle manifests change.
 - Go — refresh the Go slice when Go files or `go.mod` changes.
@@ -443,6 +446,49 @@ The default v0.4-style configuration is intentionally simple:
 ```
 
 No SQLite or mandatory symbol database is used by default.
+
+### Frontend architecture defaults
+
+Frontend code follows the same feature-first philosophy but does **not** inherit backend controller/service/repository ceremony by default.
+
+Typical shape:
+
+```text
+route/page shell
+      ↓
+feature UI
+      ↓
+hooks / composables / stores
+      ↓
+API / data adapters
+```
+
+Useful rules include:
+
+- keep page/route shells thin,
+- keep non-trivial business workflows out of presentational components,
+- avoid cross-feature imports through another feature's internals,
+- keep shared modules independent from feature internals,
+- respect server/client boundaries in Next.js, Nuxt and SvelteKit,
+- use component tests/integration tests for UI behavior and E2E only for critical flows.
+
+### WordPress architecture defaults
+
+WordPress is treated as a CMS/framework adapter, not just generic PHP.
+
+The standard profile prefers:
+
+```text
+WordPress hooks / REST / templates
+            ↓
+feature-oriented plugin/theme modules
+            ↓
+services / business behavior
+            ↓
+WordPress APIs / data adapters
+```
+
+The adapter treats hooks, filters, shortcodes, REST routes, block contracts, options/meta, and theme/plugin boundaries as integration contracts. It explicitly prefers WordPress APIs and custom plugin/theme code over modifying WordPress core.
 
 ## Core workflow
 
@@ -699,6 +745,8 @@ Rust:
 - `cargo test`
 
 The built-in graph is a zero-setup baseline. Native analyzers remain authoritative when configured.
+
+For frontend projects, useful native tooling includes ESLint, TypeScript/Vue/Svelte type-checkers, Vitest/Jest, Testing Library, Playwright/Cypress, and framework build commands. For WordPress, use Composer scripts, PHPUnit/Pest, PHPStan, PHPCS/WordPress Coding Standards, WP-CLI checks, and frontend build/test commands when the project already configures them.
 
 ## Dependency snapshots
 
