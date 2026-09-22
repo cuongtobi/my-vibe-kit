@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import time
 import uuid
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -23,6 +23,7 @@ from vibe_stacks import (
 )
 from vibe_state import (
     cache_status,
+    content_hash_index,
     current_repo_state,
     load_cache,
     repository_files,
@@ -270,6 +271,7 @@ MANIFEST_NAMES = {
     "setup.py",
     "setup.cfg",
     "package.json",
+    "pnpm-workspace.yaml",
     "tsconfig.json",
     "composer.json",
     "composer.lock",
@@ -286,6 +288,89 @@ MANIFEST_NAMES = {
 }
 
 
+SEARCH_TEXT_LIMIT = 262144
+SEARCH_TERM_LIMIT = 128
+SEARCH_SYMBOL_LIMIT = 64
+SEARCH_STOP_WORDS = {
+    "and", "async", "await", "bool", "break", "case", "catch", "class", "const",
+    "continue", "def", "default", "delete", "do", "else", "enum", "export", "extends",
+    "false", "finally", "float", "for", "from", "func", "function", "if", "implements",
+    "import", "in", "instanceof", "int", "interface", "let", "match", "module", "new",
+    "none", "null", "package", "pass", "private", "protected", "public", "raise", "return",
+    "self", "static", "str", "struct", "super", "switch", "this", "throw", "trait", "true",
+    "try", "type", "use", "var", "void", "while", "with", "yield",
+}
+
+
+def _identifier_parts(value: str) -> List[str]:
+    out = []
+    for raw in re.split(r"[^A-Za-z0-9]+|_+", value):
+        if not raw:
+            continue
+        pieces = re.findall(r"[A-Z]+(?=[A-Z][a-z]|\b)|[A-Z]?[a-z]+|[0-9]+", raw)
+        values = pieces or [raw]
+        lowered_raw = raw.lower()
+        if len(lowered_raw) >= 3:
+            out.append(lowered_raw)
+        for piece in values:
+            piece = piece.lower()
+            if len(piece) >= 3:
+                out.append(piece)
+    return out
+
+
+def _search_tokens_from_text(text: str) -> List[str]:
+    counts = Counter()
+    for identifier in re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", text):
+        for token in _identifier_parts(identifier):
+            if token not in SEARCH_STOP_WORDS:
+                counts[token] += 1
+    return [
+        token for token, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:SEARCH_TERM_LIMIT]
+    ]
+
+
+def _source_symbols(path: Path, text: str) -> List[str]:
+    symbols = []
+    if path.suffix.lower() == ".py":
+        try:
+            tree = ast.parse(text, filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    symbols.append(node.name)
+        except SyntaxError:
+            pass
+    else:
+        patterns = [
+            r"\b(?:class|interface|trait|enum|struct|module|type)\s+([A-Za-z_][A-Za-z0-9_]*)",
+            r"\b(?:def|fn|func|function)\s+([A-Za-z_][A-Za-z0-9_!?=]*)",
+            r"\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:=|:)",
+        ]
+        for pattern in patterns:
+            symbols.extend(re.findall(pattern, text))
+    unique = []
+    seen = set()
+    for symbol in symbols:
+        if symbol not in seen:
+            seen.add(symbol)
+            unique.append(symbol)
+        if len(unique) >= SEARCH_SYMBOL_LIMIT:
+            break
+    return unique
+
+
+def _source_search_metadata(path: Path) -> Dict[str, object]:
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            text = handle.read(SEARCH_TEXT_LIMIT)
+    except OSError:
+        return {"symbols": [], "search_terms": []}
+    return {
+        "symbols": _source_symbols(path, text),
+        "search_terms": _search_tokens_from_text(text),
+    }
+
+
 def _file_record(root: Path, path: Path) -> Optional[Dict[str, object]]:
     try:
         rel = path.relative_to(root)
@@ -294,13 +379,22 @@ def _file_record(root: Path, path: Path) -> Optional[Dict[str, object]]:
     if path.is_symlink() or ignored(path, root) or not path.exists() or not path.is_file():
         return None
     suffix = path.suffix.lower()
-    return {
+    source = suffix in SOURCE_EXTENSIONS
+    record = {
         "path": rel.as_posix(),
         "extension": suffix,
-        "source": suffix in SOURCE_EXTENSIONS,
-        "test": suffix in SOURCE_EXTENSIONS and is_test_file(rel),
-        "manifest": path.name in MANIFEST_NAMES or path.suffix.lower() == ".gemspec",
+        "source": source,
+        "test": source and is_test_file(rel),
+        "manifest": (
+            path.name in MANIFEST_NAMES
+            or path.suffix.lower() == ".gemspec"
+            or path.name == "jsconfig.json"
+            or (path.name.startswith("tsconfig") and path.suffix.lower() == ".json")
+        ),
     }
+    if source:
+        record.update(_source_search_metadata(path))
+    return record
 
 
 def _full_file_index(root: Path, max_files: int) -> Dict[str, Dict[str, object]]:
@@ -521,7 +615,12 @@ def project_context(root: Path, force: bool = False) -> Dict[str, object]:
             "module_style": architecture.get("module_style"),
         },
         "active_adapter": {
-            "language": (adapter.get("language") or {}).get("id"),
+            "primary": (adapter.get("primary_language") or adapter.get("language") or {}).get("id"),
+            "language": (adapter.get("primary_language") or adapter.get("language") or {}).get("id"),
+            "languages": [
+                item.get("id") for item in (adapter.get("languages") or [])
+                if isinstance(item, dict)
+            ],
             "frameworks": [
                 item.get("id") for item in (adapter.get("frameworks") or [])
                 if isinstance(item, dict)
@@ -653,32 +752,273 @@ def scan_python_dependency_sources(
 def scan_python_dependencies(root: Path, files: Sequence[Path]) -> Tuple[Set[str], Set[Tuple[str, str]]]:
     return scan_python_dependency_sources(root, files, files)
 
-def resolve_js_target(source: Path, spec: str, root: Path) -> Optional[str]:
-    if not spec.startswith("."):
-        return None
-    # Resolve both sides against their canonical filesystem paths. On Windows,
-    # temporary/workspace roots may be exposed through short-name or junction
-    # aliases, so resolving only the candidate can make relative_to(root) fail
-    # even when both paths refer to the same repository.
+def _jsonc(path: Path) -> Dict[str, object]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return {}
+    pattern = re.compile(r'("(?:\\.|[^"\\])*")|(/\*.*?\*/|//[^\r\n]*)', re.S)
+    stripped = pattern.sub(lambda match: match.group(1) or "", text)
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _resolve_js_path(base: Path, root: Path) -> Optional[str]:
     resolved_root = root.resolve()
-    base = (source.parent / spec).resolve()
     candidates = []
-    if base.suffix:
+    suffix = base.suffix.lower()
+    if suffix:
         candidates.append(base)
+        if suffix in {".js", ".jsx"}:
+            candidates.extend([base.with_suffix(".ts"), base.with_suffix(".tsx")])
     else:
         for ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
             candidates.append(Path(str(base) + ext))
         for ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
             candidates.append(base / ("index" + ext))
-
     for candidate in candidates:
         if not candidate.exists() or not candidate.is_file():
             continue
         try:
-            rel = candidate.resolve().relative_to(resolved_root)
+            return candidate.resolve().relative_to(resolved_root).as_posix()
         except ValueError:
             continue
-        return rel.as_posix()
+    return None
+
+
+def _js_configurations(root: Path) -> List[Dict[str, object]]:
+    configs = []
+    for current, dirs, files in os.walk(str(root)):
+        dirs[:] = [name for name in dirs if name not in IGNORE_DIRS]
+        for name in files:
+            lowered = name.lower()
+            if not (
+                lowered == "jsconfig.json"
+                or (lowered.startswith("tsconfig") and lowered.endswith(".json"))
+            ):
+                continue
+            path = Path(current) / name
+            data = _jsonc(path)
+            options = data.get("compilerOptions") or {}
+            if not isinstance(options, dict):
+                continue
+            paths = options.get("paths") or {}
+            if not isinstance(paths, dict):
+                paths = {}
+            base_url = options.get("baseUrl")
+            base = path.parent / str(base_url) if isinstance(base_url, str) else path.parent
+            configs.append({
+                "directory": path.parent.resolve(),
+                "base_url": base.resolve(),
+                "paths": {
+                    str(key): [str(value) for value in values]
+                    for key, values in paths.items()
+                    if isinstance(key, str) and isinstance(values, list)
+                },
+            })
+    configs.sort(key=lambda item: len(Path(item["directory"]).parts), reverse=True)
+    return configs
+
+
+def _workspace_patterns(data: Dict[str, object]) -> List[str]:
+    workspaces = data.get("workspaces")
+    if isinstance(workspaces, list):
+        return [str(item) for item in workspaces if isinstance(item, str)]
+    if isinstance(workspaces, dict):
+        packages = workspaces.get("packages")
+        if isinstance(packages, list):
+            return [str(item) for item in packages if isinstance(item, str)]
+    return []
+
+
+def _pnpm_workspace_patterns(root: Path) -> List[str]:
+    path = root / "pnpm-workspace.yaml"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+    patterns = []
+    active = False
+    block_indent = 0
+    for line in lines:
+        stripped = line.strip()
+        if not active:
+            if stripped == "packages:":
+                active = True
+                block_indent = len(line) - len(line.lstrip())
+            continue
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent <= block_indent and not stripped.startswith("-"):
+            break
+        match = re.match(r"""-\s*['"]?([^'"]+)['"]?\s*$""", stripped)
+        if match:
+            value = match.group(1).strip()
+            if value and not value.startswith("!"):
+                patterns.append(value)
+    return patterns
+
+
+def _workspace_packages(root: Path) -> Dict[str, Dict[str, object]]:
+    root_package = _jsonc(root / "package.json")
+    result = {}
+    patterns = _workspace_patterns(root_package) + _pnpm_workspace_patterns(root)
+    for pattern in dict.fromkeys(patterns):
+        for directory in root.glob(pattern):
+            package_path = directory / "package.json"
+            if not package_path.is_file():
+                continue
+            data = _jsonc(package_path)
+            name = data.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+            result[name] = {
+                "directory": directory.resolve(),
+                "exports": data.get("exports"),
+                "source": data.get("source"),
+                "module": data.get("module"),
+                "main": data.get("main"),
+                "types": data.get("types"),
+            }
+    return result
+
+
+def _export_string(value: object) -> Optional[str]:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ("import", "default", "require", "types", "node", "browser"):
+            if key in value:
+                selected = _export_string(value.get(key))
+                if selected:
+                    return selected
+    return None
+
+
+def _workspace_targets(package: Dict[str, object], subpath: str) -> List[Path]:
+    directory = Path(package["directory"])
+    values = []
+    exports = package.get("exports")
+    if not subpath:
+        if isinstance(exports, dict) and "." in exports:
+            selected = _export_string(exports.get("."))
+            if selected:
+                values.append(selected)
+        else:
+            selected = _export_string(exports)
+            if selected:
+                values.append(selected)
+        for key in ("source", "module", "main", "types"):
+            value = package.get(key)
+            if isinstance(value, str):
+                values.append(value)
+        values.extend(["src/index", "index"])
+    else:
+        export_key = "./" + subpath
+        if isinstance(exports, dict):
+            selected = _export_string(exports.get(export_key))
+            if selected:
+                values.append(selected)
+            for key, value in exports.items():
+                if not isinstance(key, str) or "*" not in key:
+                    continue
+                prefix, _, suffix = key.partition("*")
+                if export_key.startswith(prefix) and export_key.endswith(suffix):
+                    wildcard = export_key[len(prefix):]
+                    if suffix:
+                        wildcard = wildcard[:-len(suffix)]
+                    selected = _export_string(value)
+                    if selected:
+                        values.append(selected.replace("*", wildcard))
+        values.extend([subpath, "src/" + subpath])
+    return [directory / value.lstrip("./") for value in values]
+
+
+def _nearest_package_root(source: Path, root: Path) -> Path:
+    current = source.parent.resolve()
+    resolved_root = root.resolve()
+    while True:
+        if (current / "package.json").is_file():
+            return current
+        if current == resolved_root or resolved_root not in current.parents:
+            return resolved_root
+        current = current.parent
+
+
+def _alias_bases(
+    source: Path,
+    spec: str,
+    root: Path,
+    resolver: Dict[str, object],
+) -> List[Path]:
+    result = []
+    source_resolved = source.resolve()
+    for config in resolver.get("configs") or []:
+        directory = Path(config["directory"])
+        if directory != source_resolved.parent and directory not in source_resolved.parents:
+            continue
+        paths = config.get("paths") or {}
+        for pattern, targets in paths.items():
+            wildcard = None
+            if "*" in pattern:
+                prefix, _, suffix = pattern.partition("*")
+                if not (spec.startswith(prefix) and spec.endswith(suffix)):
+                    continue
+                wildcard = spec[len(prefix):]
+                if suffix:
+                    wildcard = wildcard[:-len(suffix)]
+            elif pattern != spec:
+                continue
+            for target in targets:
+                value = target.replace("*", wildcard or "")
+                result.append(Path(config["base_url"]) / value)
+    if spec.startswith("@/"):
+        package_root = _nearest_package_root(source, root)
+        src = package_root / "src"
+        if src.is_dir():
+            result.append(src / spec[2:])
+    return result
+
+
+def _workspace_bases(spec: str, resolver: Dict[str, object]) -> List[Path]:
+    packages = resolver.get("workspaces") or {}
+    for name in sorted(packages, key=len, reverse=True):
+        if spec == name:
+            return _workspace_targets(packages[name], "")
+        prefix = name + "/"
+        if spec.startswith(prefix):
+            return _workspace_targets(packages[name], spec[len(prefix):])
+    return []
+
+
+def _js_resolution_context(root: Path) -> Dict[str, object]:
+    return {
+        "configs": _js_configurations(root),
+        "workspaces": _workspace_packages(root),
+    }
+
+
+def resolve_js_target(
+    source: Path,
+    spec: str,
+    root: Path,
+    resolver: Optional[Dict[str, object]] = None,
+) -> Optional[str]:
+    bases = []
+    if spec.startswith("."):
+        bases.append(source.parent / spec)
+    else:
+        active = resolver or _js_resolution_context(root)
+        bases.extend(_alias_bases(source, spec, root, active))
+        bases.extend(_workspace_bases(spec, active))
+    for base in bases:
+        resolved = _resolve_js_path(base.resolve(), root)
+        if resolved:
+            return resolved
     return None
 
 
@@ -687,6 +1027,7 @@ def scan_js_dependencies(root: Path, files: Sequence[Path]) -> Tuple[Set[str], S
     js_files = [path for path in files if path.suffix.lower() in js_ext]
     nodes = {path.relative_to(root).as_posix() for path in js_files}
     edges = set()
+    resolver = _js_resolution_context(root)
     for path in js_files:
         rel = path.relative_to(root).as_posix()
         try:
@@ -694,7 +1035,7 @@ def scan_js_dependencies(root: Path, files: Sequence[Path]) -> Tuple[Set[str], S
         except (OSError, UnicodeDecodeError):
             continue
         for match in JS_IMPORT_RE.finditer(text):
-            target = resolve_js_target(path, match.group(1), root)
+            target = resolve_js_target(path, match.group(1), root, resolver)
             if target and target != rel:
                 edges.add((rel, target))
     return nodes, edges
@@ -764,7 +1105,7 @@ def _dependency_payload(
     if ".py" in suffixes:
         scanners.append("python-ast")
     if suffixes & {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
-        scanners.append("javascript-typescript-relative-imports")
+        scanners.append("javascript-typescript-static-imports")
     if ".php" in suffixes:
         scanners.append("php-static")
     if suffixes & {".java", ".kt", ".kts"}:
@@ -785,9 +1126,15 @@ def _dependency_payload(
         "dependencies": {key: sorted(values) for key, values in sorted(adjacency.items())},
         "reverse_dependencies": {key: sorted(values) for key, values in sorted(reverse.items())},
         "cycles": strongly_connected_components(nodes, edges),
+        "authority": {
+            "level": "advisory",
+            "model": "static-best-effort",
+            "note": "Use this graph to guide retrieval and impact analysis, not as proof that no runtime dependency exists.",
+        },
         "limitations": [
-            "Static baseline only: dynamic imports, runtime dependency injection, reflection, generated code, framework registries, macros, and non-relative JS/TS aliases may require native analyzers.",
-            "Python/JavaScript/TypeScript refresh changed files, or the affected language slice when source paths are added, removed, or renamed; PHP/Java/Kotlin/Go/Rust/Ruby refresh the affected language slice when those files or their module manifest change.",
+            "Static baseline only: dynamic imports, runtime dependency injection, reflection, generated code, framework registries, macros, Rails/WordPress runtime registration, and other framework magic may require native analyzers or tests.",
+            "JavaScript/TypeScript resolves relative imports, tsconfig/jsconfig path aliases, @/ source aliases, and local workspace package exports when statically discoverable; runtime/bundler-only aliases can still require native tooling.",
+            "Python/JavaScript/TypeScript refresh changed files, or the affected language slice when source paths/resolution manifests change; PHP/Java/Kotlin/Go/Rust/Ruby refresh the affected language slice when those files or their module manifest change.",
         ],
         "primary_language": stack.get("primary"),
         "cache": cache_meta,
@@ -874,6 +1221,17 @@ def dependency_graph(root: Path, force: bool = False) -> Dict[str, object]:
             new_paths = {path for path in current_sources if Path(path).suffix.lower() in extensions}
             if old_paths != new_paths:
                 rescan_sources.update(new_paths)
+
+        js_resolution_manifest_changed = any(
+            Path(path).name in {"package.json", "pnpm-workspace.yaml"}
+            or Path(path).name == "jsconfig.json"
+            or (Path(path).name.startswith("tsconfig") and Path(path).suffix.lower() == ".json")
+            for path in changed
+        )
+        if js_resolution_manifest_changed:
+            rescan_sources.update(
+                path for path in current_sources if Path(path).suffix.lower() in js_ext
+            )
 
         edges = {
             (source, target) for source, target in edges
@@ -1020,10 +1378,11 @@ def _query_tokens(value: str) -> List[str]:
         "this", "that", "with", "from", "into", "for", "and", "use", "using",
         "feature", "bug", "project", "task", "new",
     }
-    return [
-        token for token in re.findall(r"[A-Za-z0-9_]+", value.lower())
-        if len(token) >= 3 and token not in stop
-    ]
+    tokens = []
+    for token in _identifier_parts(value):
+        if token not in stop and token not in tokens:
+            tokens.append(token)
+    return tokens
 
 
 def _path_score(path: str, tokens: Sequence[str]) -> int:
@@ -1038,6 +1397,30 @@ def _path_score(path: str, tokens: Sequence[str]) -> int:
         elif token in lowered:
             score += 2
     return score
+
+
+def _indexed_relevance(
+    path: str,
+    record: object,
+    tokens: Sequence[str],
+) -> Dict[str, object]:
+    item = record if isinstance(record, dict) else {}
+    symbols = [str(value) for value in (item.get("symbols") or [])]
+    search_terms = set(str(value) for value in (item.get("search_terms") or []))
+    symbol_parts = set()
+    for symbol in symbols:
+        symbol_parts.update(_identifier_parts(symbol))
+    symbol_matches = sorted(set(tokens) & symbol_parts)
+    content_matches = sorted(set(tokens) & search_terms)
+    path_score = _path_score(path, tokens)
+    score = path_score + (10 * len(symbol_matches)) + (3 * len(content_matches))
+    return {
+        "path": path,
+        "score": score,
+        "path_score": path_score,
+        "symbol_matches": symbol_matches,
+        "content_matches": content_matches,
+    }
 
 
 def relevant_context(
@@ -1061,25 +1444,46 @@ def relevant_context(
         if Path(item).as_posix() in set(nodes)
     ]
 
-    if not selected:
-        selected = [path for path in changed_files(root) if path in set(nodes)]
-
     active_query = query or ""
     task = current_task(root)
     if not active_query and isinstance(task, dict):
         active_query = str(task.get("request") or "")
 
     tokens = _query_tokens(active_query)
+    file_index = load_cache(root, "files", {})
+    if not isinstance(file_index, dict):
+        file_index = {}
+    changed = set(changed_files(root))
+    retrieval = []
+
     if not selected and tokens:
-        ranked = sorted(
-            (
-                (_path_score(path, tokens), path)
-                for path in nodes
-                if path not in test_files
-            ),
-            key=lambda item: (-item[0], item[1]),
-        )
-        selected = [path for score, path in ranked if score > 0][:3]
+        ranked = []
+        for path in nodes:
+            if path in test_files:
+                continue
+            evidence = _indexed_relevance(path, file_index.get(path), tokens)
+            if path in changed:
+                evidence["score"] = int(evidence["score"]) + 1
+                evidence["changed_file_bonus"] = 1
+            if int(evidence["score"]) > 0:
+                ranked.append(evidence)
+        ranked.sort(key=lambda item: (-int(item["score"]), str(item["path"])))
+        retrieval = ranked[:10]
+        selected = [str(item["path"]) for item in ranked[:3]]
+    elif not selected:
+        selected = [path for path in sorted(changed) if path in set(nodes)]
+
+    if targets:
+        retrieval = [
+            {
+                "path": path,
+                "score": None,
+                "reason": "explicit-target",
+                "symbol_matches": [],
+                "content_matches": [],
+            }
+            for path in selected
+        ]
 
     dependencies = graph.get("dependencies") or {}
     reverse = graph.get("reverse_dependencies") or {}
@@ -1119,10 +1523,13 @@ def relevant_context(
         "query": active_query,
         "query_tokens": tokens,
         "targets": selected,
+        "retrieval_mode": "indexed-symbol-content",
+        "retrieval_evidence": retrieval,
         "source_files": source_files,
         "test_files": related_tests,
         "related_modules": modules,
         "dependency_depth": depth,
+        "dependency_authority": graph.get("authority"),
         "limits": {
             "max_source_files": max_source,
             "max_test_files": max_tests,
@@ -1200,6 +1607,7 @@ def impact_analysis(root: Path, targets: Optional[Sequence[str]] = None) -> Dict
         "affected_tests": sorted(set(tests)),
         "affected_routes": affected_routes,
         "frameworks": framework_map.get("frameworks", []) if isinstance(framework_map, dict) else [],
+        "dependency_authority": graph.get("authority"),
         "depth": depth,
     }
     json_dump(runtime_dir(root) / "impact.json", data)
@@ -1338,25 +1746,22 @@ def dependency_diff(root: Path) -> Dict[str, object]:
 
 
 def verification_fingerprint(root: Path) -> str:
-    """Bind evidence to file contents, even outside Git or with a clean index."""
+    """Bind evidence to file contents while reusing persistent hashes for unchanged files."""
     config = load_config(root)
-    files = {path.relative_to(root).as_posix(): path for path in iter_files(
-        root, max_files=int(config["context"].get("max_files", 20000))
-    )}
+    relative_files = [
+        path.relative_to(root).as_posix()
+        for path in iter_files(root, max_files=int(config["context"].get("max_files", 20000)))
+    ]
     control = config_path(root)
-    if control.is_file():
-        files[control.relative_to(root).as_posix()] = control
+    extra_files = [control.relative_to(root).as_posix()] if control.is_file() else []
+    hashes = content_hash_index(root, relative_files, extra_files=extra_files)
     digest = hashlib.sha256()
-    for relative, path in sorted(files.items()):
+    for relative, content_hash in sorted(hashes.items()):
         digest.update(relative.encode("utf-8") + b"\0")
         try:
-            content_hash = hashlib.sha256()
-            with path.open("rb") as handle:
-                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                    content_hash.update(chunk)
-            digest.update(content_hash.digest())
-        except OSError as exc:
-            raise RuntimeError("Cannot fingerprint verification input: {}".format(relative)) from exc
+            digest.update(bytes.fromhex(content_hash))
+        except ValueError as exc:
+            raise RuntimeError("Invalid cached verification hash: {}".format(relative)) from exc
     return digest.hexdigest()
 
 
@@ -1397,10 +1802,10 @@ def verify(root: Path) -> Dict[str, object]:
 
     # Commands may format or generate source; compare dependencies of the final tree.
     if task_path and (task_path / "dependency-before.json").exists():
-        snapshot_dependencies(root, "after")
+        final_graph = snapshot_dependencies(root, "after")
         dep_diff = dependency_diff(root)
     else:
-        dependency_graph(root)
+        final_graph = dependency_graph(root)
     final_fingerprint = verification_fingerprint(root)
     inputs_changed = inputs_changed or final_fingerprint != last_fingerprint
 
@@ -1438,6 +1843,7 @@ def verify(root: Path) -> Dict[str, object]:
         "commands_run": len(results),
         "command_results": results,
         "dependency_diff": dep_diff,
+        "dependency_authority": final_graph.get("authority") if isinstance(final_graph, dict) else None,
         "new_cycles": new_cycles,
         "git_status": (git(root, "status", "--short") or "").splitlines(),
         "git_diff_stat": git(root, "diff", "--stat"),

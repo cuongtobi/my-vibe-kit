@@ -484,6 +484,155 @@ class VibeCoreTests(unittest.TestCase):
         self.assertFalse(data["history_policy"]["auto_load_history"])
         self.assertTrue((root / ".vibe/runtime/relevant-context.json").exists())
 
+    def test_relevant_context_ranks_symbol_and_content_matches(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "manager.py").write_text(
+            "def refresh_access_token(session):\n"
+            "    if session.expired:\n"
+            "        return rotate_token(session)\n",
+            encoding="utf-8",
+        )
+        (root / "unrelated.py").write_text("def calculate_invoice():\n    return 1\n", encoding="utf-8")
+        self.init_git(root)
+
+        vibe_core.start_task(root, "bug_fix", "fix refresh token logic after session expires")
+        data = vibe_core.relevant_context(root)
+
+        self.assertIn("manager.py", data["targets"])
+        evidence = next(item for item in data["retrieval_evidence"] if item["path"] == "manager.py")
+        self.assertIn("refresh", evidence["symbol_matches"])
+        self.assertIn("session", evidence["content_matches"])
+        index = json.loads((root / ".vibe/state/file-index.json").read_text(encoding="utf-8"))
+        self.assertIn("refresh_access_token", index["manager.py"]["symbols"])
+
+    def test_js_dependency_graph_resolves_paths_and_workspace_exports(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "package.json").write_text("{}", encoding="utf-8")
+        (root / "pnpm-workspace.yaml").write_text(
+            "packages:\n  - 'packages/*'\n",
+            encoding="utf-8",
+        )
+        (root / "tsconfig.json").write_text(
+            '{\n  // alias used by the application\n  "compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["src/*"]}}\n}\n',
+            encoding="utf-8",
+        )
+        src = root / "src"
+        (src / "services").mkdir(parents=True)
+        (src / "services" / "auth.ts").write_text("export const auth = 1\n", encoding="utf-8")
+        (src / "main.ts").write_text("import { auth } from '@/services/auth'\n", encoding="utf-8")
+
+        ui = root / "packages" / "ui"
+        (ui / "src").mkdir(parents=True)
+        (ui / "package.json").write_text(
+            json.dumps({
+                "name": "@acme/ui",
+                "exports": {"./button": "./src/button.ts"},
+            }),
+            encoding="utf-8",
+        )
+        (ui / "src" / "button.ts").write_text("export const Button = 1\n", encoding="utf-8")
+        (src / "consumer.ts").write_text("import { Button } from '@acme/ui/button'\n", encoding="utf-8")
+
+        graph = vibe_core.dependency_graph(root)
+        edges = {(item["from"], item["to"]) for item in graph["edges"]}
+        self.assertIn(("src/main.ts", "src/services/auth.ts"), edges)
+        self.assertIn(("src/consumer.ts", "packages/ui/src/button.ts"), edges)
+
+    def test_js_resolution_manifest_change_rescans_unchanged_importers(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "package.json").write_text(json.dumps({"workspaces": ["packages/*"]}), encoding="utf-8")
+        (root / "tsconfig.json").write_text(
+            json.dumps({"compilerOptions": {"paths": {"@/*": ["src/*"]}}}),
+            encoding="utf-8",
+        )
+        (root / "src").mkdir()
+        (root / "alt").mkdir()
+        (root / "src" / "auth.ts").write_text("export const auth = 'src'\n", encoding="utf-8")
+        (root / "alt" / "auth.ts").write_text("export const auth = 'alt'\n", encoding="utf-8")
+        (root / "main.ts").write_text("import { auth } from '@/auth'\n", encoding="utf-8")
+
+        package = root / "packages" / "ui"
+        (package / "src").mkdir(parents=True)
+        (package / "package.json").write_text(
+            json.dumps({"name": "@acme/ui", "exports": "./src/a.ts"}),
+            encoding="utf-8",
+        )
+        (package / "src" / "a.ts").write_text("export const value = 'a'\n", encoding="utf-8")
+        (package / "src" / "b.ts").write_text("export const value = 'b'\n", encoding="utf-8")
+        (root / "consumer.ts").write_text("import { value } from '@acme/ui'\n", encoding="utf-8")
+        self.init_git(root)
+
+        before = vibe_core.dependency_graph(root)
+        before_edges = {(item["from"], item["to"]) for item in before["edges"]}
+        self.assertIn(("main.ts", "src/auth.ts"), before_edges)
+        self.assertIn(("consumer.ts", "packages/ui/src/a.ts"), before_edges)
+
+        (root / "tsconfig.json").write_text(
+            json.dumps({"compilerOptions": {"paths": {"@/*": ["alt/*"]}}}),
+            encoding="utf-8",
+        )
+        (package / "package.json").write_text(
+            json.dumps({"name": "@acme/ui", "exports": "./src/b.ts"}),
+            encoding="utf-8",
+        )
+        after = vibe_core.dependency_graph(root)
+        after_edges = {(item["from"], item["to"]) for item in after["edges"]}
+        self.assertEqual(after["cache"]["mode"], "INCREMENTAL_REFRESH")
+        self.assertIn(("main.ts", "alt/auth.ts"), after_edges)
+        self.assertNotIn(("main.ts", "src/auth.ts"), after_edges)
+        self.assertIn(("consumer.ts", "packages/ui/src/b.ts"), after_edges)
+        self.assertNotIn(("consumer.ts", "packages/ui/src/a.ts"), after_edges)
+
+    def test_polyglot_active_adapter_exposes_all_languages_and_primary(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "package.json").write_text(
+            json.dumps({"dependencies": {"next": "^16.0.0", "react": "^19.0.0"}}),
+            encoding="utf-8",
+        )
+        (root / "tsconfig.json").write_text("{}", encoding="utf-8")
+        (root / "pyproject.toml").write_text(
+            "[project]\ndependencies = [\"fastapi\"]\n",
+            encoding="utf-8",
+        )
+        (root / "app.py").write_text("from fastapi import FastAPI\n", encoding="utf-8")
+        (root / "page.tsx").write_text("export const Page = () => null\n", encoding="utf-8")
+
+        # Source-tree adapters are used directly when testing the kit repository runtime.
+        adapters = root / "adapters"
+        (adapters / "languages").mkdir(parents=True)
+        for language in ("python", "javascript", "typescript"):
+            (adapters / "languages" / (language + ".json")).write_text(
+                json.dumps({"id": language, "kind": "language"}),
+                encoding="utf-8",
+            )
+        (adapters / "frameworks").mkdir()
+        for framework in ("fastapi", "nextjs", "react"):
+            (adapters / "frameworks" / (framework + ".json")).write_text(
+                json.dumps({"id": framework, "kind": "framework"}),
+                encoding="utf-8",
+            )
+
+        context = vibe_core.project_context(root)
+        self.assertEqual(context["active_adapter"]["primary"], "typescript")
+        self.assertTrue({"python", "javascript", "typescript"}.issubset(set(context["active_adapter"]["languages"])))
+        active = json.loads((root / ".vibe/runtime/active-adapter.json").read_text(encoding="utf-8"))
+        self.assertEqual(active["primary_language"]["id"], "typescript")
+        self.assertTrue({"python", "javascript", "typescript"}.issubset({item["id"] for item in active["languages"]}))
+
+    def test_dependency_graph_declares_static_advisory_authority(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "a.py").write_text("value = 1\n", encoding="utf-8")
+        graph = vibe_core.dependency_graph(root)
+        self.assertEqual(graph["authority"]["level"], "advisory")
+        self.assertEqual(graph["authority"]["model"], "static-best-effort")
+        relevant = vibe_core.relevant_context(root, ["a.py"])
+        self.assertEqual(relevant["dependency_authority"]["level"], "advisory")
+
     def test_new_cycle_is_detected_in_dependency_diff(self):
         temp, root = self.make_repo()
         self.addCleanup(temp.cleanup)
@@ -531,6 +680,7 @@ class VibeCoreTests(unittest.TestCase):
         self.assertEqual(report["command_results"][0]["returncode"], 0)
         self.assertEqual(report["architecture"]["profile"], "standard")
         self.assertEqual(report["architecture"]["pattern"], "modular-layered")
+        self.assertEqual(report["dependency_authority"]["level"], "advisory")
 
     def test_verify_cli_requires_evidence_even_when_commands_are_optional(self):
         temp, root = self.make_repo()

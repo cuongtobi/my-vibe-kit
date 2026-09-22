@@ -54,7 +54,7 @@ Understand the smallest safe change before implementation.
    - default to `standard + feature-first + modular-layered + framework-native`,
    - keep transport/presentation thin and business behavior in application/domain code,
    - standard projects may use ports/adapters or other abstractions for a concrete boundary, variation, reuse, or testing need; a full Clean/Hexagonal structure is not required.
-6. Start from `.vibe/runtime/relevant-context.json`. Read its bounded source/test files, then expand when evidence requires it. If it is empty or unrelated, search filenames and symbols with scoped `rg --files` / `rg`, inspect likely entry points, and rerun `relevant <identified-files>`. An empty result is a retrieval gap, not proof that nothing is affected. Do not paste the full graph into context; summary mode leaves it on disk.
+6. Start from `.vibe/runtime/relevant-context.json`. Its first-pass targets are ranked from the persistent path + symbol + content-term index, then expanded through the bounded dependency neighborhood. Read those bounded source/test files first. If it is empty or unrelated, use a scoped repository search to recover missing runtime/dynamic relationships, identify explicit targets, and rerun `relevant <identified-files>`. An empty result is a retrieval gap, not proof that nothing is affected. Do not paste the full graph into context; summary mode leaves it on disk.
 7. Identify:
    - target files/symbols,
    - direct dependencies,
@@ -62,7 +62,7 @@ Understand the smallest safe change before implementation.
    - bounded transitive impact,
    - related configuration/data/schema/API contracts,
    - framework routes/components affected by the target,
-   - active language/framework adapter guidance,
+   - all active language adapters, the primary language, and framework adapter guidance,
    - effective architecture profile/pattern,
    - clean-code and dependency rules from the architecture policy,
    - related tests,
@@ -121,5 +121,6 @@ Assign stable criterion IDs, for example `AC1`, and record each observable expec
 
 - Planning must not quietly become implementation.
 - Do not claim a root cause without evidence.
+- Treat the built-in dependency graph as advisory static evidence. Dynamic imports, DI, registries, Rails/WordPress runtime wiring, generated code, and framework magic require native analyzers/tests or direct inspection when relevant.
 - Do not paste the entire dependency graph into context; summarize only the relevant neighborhood.
 - If deterministic runtime tooling is unavailable, say which dependency/context facts were inferred manually.

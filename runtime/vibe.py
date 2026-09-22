@@ -196,6 +196,7 @@ def main() -> int:
                 result.get("returncode") != 0 for result in report["command_results"]
             ),
             "dependency_comparison_available": isinstance(report.get("dependency_diff"), dict),
+            "dependency_authority": (report.get("dependency_authority") or {}).get("level"),
             "new_cycle_count": len(report.get("new_cycles") or []),
         }, args)
         if report["status"] == "PASS_VERIFIED":

@@ -168,20 +168,34 @@ def effective_adapter(root: Path) -> Dict[str, object]:
     bases = [root/'.vibe'/'adapters', root/'adapters']
     base = next((candidate for candidate in bases if candidate.exists()), None)
 
-    language = None
+    languages = []
     frameworks = []
+    language_ids = [str(item) for item in (stack.get('languages') or ['generic'])]
+    primary_id = str(stack.get('primary', language_ids[0] if language_ids else 'generic'))
     if base is not None:
-        language_path = base/'languages'/(str(stack.get('primary', 'generic')) + '.json')
-        if language_path.exists():
-            language = _json(language_path)
+        for language_id in language_ids:
+            language_path = base/'languages'/(language_id + '.json')
+            if language_path.exists():
+                languages.append(_json(language_path))
+            else:
+                languages.append({'id': language_id, 'kind': 'language'})
         for framework in stack.get('frameworks') or []:
             path = base/'frameworks'/(str(framework) + '.json')
             if path.exists():
                 frameworks.append(_json(path))
+    else:
+        languages = [{'id': language_id, 'kind': 'language'} for language_id in language_ids]
 
+    primary_language = next(
+        (item for item in languages if isinstance(item, dict) and item.get('id') == primary_id),
+        {'id': primary_id, 'kind': 'language'},
+    )
     return {
         'stack': stack,
-        'language': language or {'id': stack.get('primary', 'generic'), 'kind': 'language'},
+        'primary_language': primary_language,
+        'languages': languages,
+        # Compatibility alias for existing consumers; new code should use primary_language/languages.
+        'language': primary_language,
         'frameworks': frameworks,
         'adapter_source': str(base) if base is not None else None,
     }

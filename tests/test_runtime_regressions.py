@@ -52,7 +52,7 @@ class RuntimeRegressionTests(unittest.TestCase):
 
     def test_every_cache_artifact_is_validated_before_hit_and_incremental_refresh(self):
         self.init_git()
-        for artifact in state.CACHE_FILES:
+        for artifact in (name for name in state.CACHE_FILES if name != "hashes"):
             for dirty in (False, True):
                 with self.subTest(artifact=artifact, dirty=dirty):
                     self.write("b.py", "value = 1\n")
@@ -87,6 +87,27 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertEqual(core.project_context(self.root)["cache"]["mode"], "FULL_REBUILD")
         (self.root / ".vibe/state/last-context.json").write_bytes(b"\xff")
         self.assertEqual(core.project_context(self.root)["source_file_count"], 2)
+
+    def test_verification_fingerprint_reuses_content_hash_cache(self):
+        for index in range(20):
+            self.write("pkg/file_{:02d}.py".format(index), "value = {}\n".format(index))
+        self.init_git()
+
+        first = core.verification_fingerprint(self.root)
+        self.assertTrue((self.root / ".vibe/state/content-hashes.json").exists())
+
+        original = state._file_sha256
+        with mock.patch("vibe_state._file_sha256", wraps=original) as hashed:
+            second = core.verification_fingerprint(self.root)
+            self.assertEqual(first, second)
+            # Cache validation/config checks may hash a few control files, but not all sources again.
+            self.assertLess(hashed.call_count, 10)
+
+        self.write("pkg/file_07.py", "value = 700\n")
+        with mock.patch("vibe_state._file_sha256", wraps=original) as hashed:
+            third = core.verification_fingerprint(self.root)
+            self.assertNotEqual(first, third)
+            self.assertLess(hashed.call_count, 10)
 
     def test_unicode_paths_are_hashed_on_each_dirty_edit(self):
         self.write("a.py", "import té\n")
