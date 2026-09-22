@@ -98,8 +98,8 @@ The workflow is language-agnostic. The runtime adds stack-aware adapters and bas
 | Language | Baseline dependency scan | Framework adapters |
 | --- | --- | --- |
 | Python | AST import graph | Flask, FastAPI, Django |
-| JavaScript | relative import/require graph | Express, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
-| TypeScript | relative import graph | Express, NestJS, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
+| JavaScript | relative + tsconfig/jsconfig alias + local workspace import graph | Express, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
+| TypeScript | relative + tsconfig/jsconfig alias + local workspace import graph | Express, NestJS, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
 | PHP | namespace/use + literal require/include graph | Laravel, WordPress |
 | Java/Kotlin | package/import graph | Spring |
 | Go | module-local import graph | Gin, Fiber |
@@ -112,7 +112,7 @@ Framework adapters add route/component/controller/model/provider context and fra
 The runtime resolves:
 
 ```text
-detected language
+detected languages + primary language
        +
 detected framework(s)
        ↓
@@ -121,7 +121,7 @@ active-adapter.json
 plan / impact / build / verify
 ```
 
-The four core skills therefore do not need separate Flask/Laravel/Rails/React/WordPress/etc. variants.
+`active-adapter.json` exposes every detected language adapter plus `primary_language`; the legacy single `language` field remains only as a compatibility alias for existing consumers. The four core skills therefore do not need separate Flask/Laravel/Rails/React/WordPress/etc. variants.
 
 For frontend stacks, adapters are composable. A TypeScript + React + Vite project can activate all three relevant layers; a Next.js project can activate Next.js plus React, while architecture guidance prioritizes the meta-framework. Likewise Nuxt is prioritized over Vue and SvelteKit over Svelte. Vite remains a tooling adapter rather than the source of application architecture.
 
@@ -260,7 +260,8 @@ Reusable local state lives in:
 ├── last-dependency.json
 ├── last-framework.json
 ├── last-adapter.json
-└── last-architecture.json
+├── last-architecture.json
+└── content-hashes.json
 ```
 
 `.vibe/state/` is ignored by `.vibe/.gitignore`.
@@ -268,6 +269,8 @@ Reusable local state lives in:
 It is a performance cache, not project truth and not verification evidence.
 
 `index-state.json` records cache schema/scanner versions, artifact SHA-256 checksums, and the Git repository state associated with cached artifacts. Every context bundle (file index, context, framework, adapter, architecture) and dependency cache is checked before reuse or incremental refresh. Missing, corrupted, or inconsistent artifacts trigger a full rebuild; an empty valid repository remains cacheable.
+
+`file-index.json` also stores a bounded source-search index: discovered symbols plus high-signal identifier/content terms for each source file. The index is refreshed only for changed files during an incremental update. `content-hashes.json` separately caches verification content hashes so repeated source fingerprints reuse unchanged hashes instead of reopening every indexed file.
 
 For cache invalidation, the runtime uses Git HEAD, dirty/untracked file hashes, and the runtime configuration hash. Git paths use NUL-delimited output so Unicode, whitespace, and rename paths remain intact. Git repositories index tracked files and non-ignored untracked files, subject to the kit's directory exclusions and file limit. Ignored generated files are excluded from the graph unless already tracked; outside Git, the filesystem scanner remains available and refreshes fully.
 
@@ -336,7 +339,7 @@ Default first-pass limits:
 - 8 related modules,
 - dependency depth 2.
 
-The agent reads this bounded neighborhood first, then expands only when a concrete dependency, consumer, contract, configuration path, or failing test requires more context.
+`relevant` ranks initial targets from filename/path evidence plus the persistent symbol/content index, records the match evidence, then expands through the bounded dependency neighborhood. The agent reads this bounded neighborhood first, then expands only when a concrete dependency, consumer, dynamic/framework relationship, contract, configuration path, or failing test requires more context.
 
 The full dependency graph can exist on disk without being pasted into the model context.
 
@@ -705,7 +708,7 @@ The verification summary includes `dependency_comparison_available`; when false,
 Built-in zero-dependency baseline:
 
 - Python — AST local import graph.
-- JavaScript/TypeScript — relative import/export/require graph.
+- JavaScript/TypeScript — relative imports plus statically discoverable `tsconfig`/`jsconfig` path aliases, conventional `@/` source aliases, and local workspace package imports/exports.
 - PHP — namespace/use plus literal require/include relationships.
 - Java/Kotlin — package/import relationships.
 - Go — local module import relationships.
@@ -714,9 +717,11 @@ Built-in zero-dependency baseline:
 
 Framework context is materialized into `.vibe/runtime/framework-map.json`.
 
-The merged language/framework adapter is materialized into `.vibe/runtime/active-adapter.json`.
+All detected language adapters, the primary language adapter, and framework adapters are materialized into `.vibe/runtime/active-adapter.json`.
 
 Reusable copies live under `.vibe/state/`.
+
+The built-in dependency graph declares `authority.level = advisory` and `model = static-best-effort`. It is designed to narrow retrieval and impact scope, not to prove the absence of runtime dependencies. Dynamic imports, DI containers, generated code/routes, framework registries, Rails/WordPress runtime wiring, macros, and bundler-only aliases still require native analyzers, tests, or direct inspection when relevant.
 
 ### Recommended native tools
 
@@ -815,7 +820,7 @@ A cache hit is never sufficient evidence for `PASS_VERIFIED`.
 
 Verification runs configured commands before capturing the final dependency graph and after snapshot. Each command's before/after input fingerprints are recorded. If any command changes indexed files or runtime configuration, the result is `FAIL_VERIFICATION` with `rerun_required: true` and `rerun_commands` listing all configured checks. Review the final changes and rerun those checks; passing requires stable inputs. Put disposable command output in ignored directories so it is not treated as a verification input.
 
-`verification.json` includes `task_id` and `source_fingerprint` (SHA-256 over the indexed file paths/content and runtime configuration, within the configured file limit). `status.verification_current` checks both against the current task and files; it indicates whether the report is current, not whether it passed. The verify summary includes these identifiers and `rerun_required`. Executables are resolved through PATH/PATHEXT before execution, including Windows `.CMD` package-manager shims, without enabling `shell=True`. CI covers Linux and Windows.
+`verification.json` includes `task_id` and `source_fingerprint` (SHA-256 over the indexed file paths/content and runtime configuration, within the configured file limit). The first fingerprint builds `content-hashes.json`; subsequent fingerprints use repository deltas to re-hash only changed/new files while reusing hashes for unchanged files. `status.verification_current` checks the fingerprint and task identity; it indicates whether the report is current, not whether it passed. The verify summary includes these identifiers and `rerun_required`. Executables are resolved through PATH/PATHEXT before execution, including Windows `.CMD` package-manager shims, without enabling `shell=True`. CI covers Linux and Windows.
 
 An empty command list returns `NEEDS_VERIFICATION_CONFIG` (CLI exit code `3`), even when `verification.require_commands` is `false`. That setting cannot waive the requirement for executed checks before reporting `PASS_VERIFIED`.
 
