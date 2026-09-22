@@ -1,0 +1,14 @@
+{
+  "id": "java",
+  "kind": "language",
+  "extensions": [".java", ".kt", ".kts"],
+  "manifests": ["pom.xml", "build.gradle", "build.gradle.kts"],
+  "dependency": {
+    "baseline": "package-import-graph",
+    "recommended": ["jdeps", "archunit", "maven-or-gradle-dependency-tools"]
+  },
+  "verification": {
+    "recommended": ["maven-or-gradle-test", "checkstyle", "spotbugs"]
+  },
+  "framework_candidates": ["spring"]
+}
