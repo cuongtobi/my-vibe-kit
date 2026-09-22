@@ -54,3 +54,6 @@ Do not perform opportunistic refactors, package upgrades, renames, or cleanup un
 - Never infer PASS_VERIFIED from code inspection alone.
 - Never hide a failed check.
 - Prefer deterministic `.vibe/tools/vibe.py` facts over guesses when the runtime is installed.
+- Reuse persistent `.vibe/state/` context across sessions; do not rescan or load the whole repository when a valid cache or Git delta is available.
+- Treat `.vibe/tasks/` as cold history and never auto-load all prior tasks.
+- Keep model context bounded and expand it progressively from `relevant-context.json`.
