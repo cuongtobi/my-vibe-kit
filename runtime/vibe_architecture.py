@@ -19,7 +19,7 @@ from vibe_stacks import IGNORE_DIRS, detect_stack
 
 SOURCE_EXTENSIONS = {
     ".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
-    ".php", ".java", ".kt", ".kts", ".go", ".rs", ".cs", ".rb",
+    ".php", ".java", ".kt", ".kts", ".go", ".rs", ".cs", ".rb", ".vue", ".svelte",
 }
 
 CLEAN_CODE_RULES = [
@@ -79,10 +79,45 @@ FRAMEWORK_GUIDANCE = {
         "strict": ["feature module", "presentation controller", "application use-cases + ports", "domain", "Nest/infrastructure providers", "tests"],
         "notes": ["Keep Nest module/provider conventions.", "Use DI tokens/ports at real boundaries, not for every class."],
     },
+    "react": {
+        "standard": ["app/router shell", "feature modules", "components", "hooks/state", "api/data adapters", "tests"],
+        "strict": ["app/router shell", "feature presentation", "application/use-cases", "domain where business-heavy", "api/state adapters", "tests"],
+        "notes": ["Prefer feature-first UI modules.", "Keep non-trivial workflows out of presentational components.", "Shared modules must not depend on feature internals."],
+    },
+    "vue": {
+        "standard": ["app/router shell", "feature modules", "Vue components", "composables/stores", "api/data adapters", "tests"],
+        "strict": ["app/router shell", "feature presentation", "application/use-cases", "domain where business-heavy", "Pinia/API adapters", "tests"],
+        "notes": ["Keep SFCs focused on presentation and local interaction.", "Keep reusable workflows in composables/services rather than page components."],
+    },
+    "nuxt": {
+        "standard": ["pages/layouts shell", "feature modules", "components/composables", "server routes", "data adapters", "tests"],
+        "strict": ["pages/layouts shell", "feature presentation", "application/use-cases", "domain where business-heavy", "server/client adapters", "tests"],
+        "notes": ["Respect Nuxt file-system routing and server/client boundaries.", "Treat server routes and runtime config as edge concerns."],
+    },
+    "svelte": {
+        "standard": ["app shell", "feature modules", "Svelte components", "stores/actions", "api/data adapters", "tests"],
+        "strict": ["app shell", "feature presentation", "application/use-cases", "domain where business-heavy", "store/API adapters", "tests"],
+        "notes": ["Keep components focused on UI behavior.", "Keep reusable workflows out of component files when they become non-trivial."],
+    },
+    "sveltekit": {
+        "standard": ["routes/layout shell", "feature modules", "components/stores", "load/actions/server routes", "data adapters", "tests"],
+        "strict": ["routes/layout shell", "feature presentation", "application/use-cases", "domain where business-heavy", "server/client adapters", "tests"],
+        "notes": ["Respect +page/+layout/+server boundaries.", "Keep business logic out of route transport files and server actions where practical."],
+    },
+    "vite": {
+        "standard": ["framework app shell", "feature modules", "shared UI/utilities", "api/data adapters", "tests"],
+        "strict": ["framework app shell", "feature presentation", "application/use-cases", "domain where justified", "edge adapters", "tests"],
+        "notes": ["Vite is tooling, not a domain architecture.", "Let the React/Vue/Svelte adapter determine UI structure when one is present."],
+    },
     "nextjs": {
         "standard": ["route/page shell", "feature module", "application/service logic", "data/client adapters", "components", "tests"],
         "strict": ["route/page shell", "feature presentation", "application use-cases + ports", "domain where business-heavy", "server/client infrastructure adapters", "tests"],
         "notes": ["Respect server/client component boundaries.", "Keep reusable business behavior out of page components."],
+    },
+    "wordpress": {
+        "standard": ["WordPress entry/hooks", "feature-oriented plugin/theme modules", "services/business logic", "WordPress data/API adapters", "templates/blocks/assets", "tests"],
+        "strict": ["WordPress hooks/REST/templates at the edge", "application use-cases + ports", "domain", "WordPress infrastructure adapters", "blocks/assets", "tests"],
+        "notes": ["Never modify WordPress core for application behavior.", "Treat hooks, filters, shortcodes, REST routes, options/meta and block contracts as integration boundaries.", "Keep theme templates focused on presentation and move reusable business behavior into plugin/feature modules."],
     },
     "laravel": {
         "standard": ["framework routes", "controllers/requests", "feature/service/application", "models or repositories when justified", "policies/jobs/events", "tests"],
