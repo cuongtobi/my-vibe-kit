@@ -70,6 +70,8 @@ SOURCE_EXTENSIONS = {
     ".cs",
     ".rb",
     ".php",
+    ".vue",
+    ".svelte",
 }
 TEST_HINTS = ("test", "tests", "spec", "specs", "__tests__")
 JS_IMPORT_RE = re.compile(
@@ -879,6 +881,7 @@ def dependency_graph(root: Path, force: bool = False) -> Dict[str, object]:
         extra_nodes, extra_edges, _ = scan_polyglot_dependencies(root, all_files)
         nodes.update(extra_nodes)
         edges.update(extra_edges)
+        nodes.update(source_paths)
         cache_meta = {
             "mode": "FULL_REBUILD",
             "reason": refresh["reason"],
