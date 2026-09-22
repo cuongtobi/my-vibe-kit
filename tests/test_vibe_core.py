@@ -64,6 +64,98 @@ class VibeCoreTests(unittest.TestCase):
         edges = {(item["from"], item["to"]) for item in graph["edges"]}
         self.assertIn(("pkg/__init__.py", "pkg/a.py"), edges)
 
+    def test_detects_common_frameworks(self):
+        cases = [
+            ("flask", {"pyproject.toml": "[project]\ndependencies = [\"flask\"]\n"}),
+            ("express", {"package.json": json.dumps({"dependencies": {"express": "^5.0.0"}})}),
+            ("laravel", {"composer.json": json.dumps({"require": {"laravel/framework": "^12.0"}}), "artisan": ""}),
+            ("spring", {"pom.xml": "<dependency>org.springframework.boot:spring-boot-starter-web</dependency>"}),
+            ("gin", {"go.mod": "module example.com/app\nrequire github.com/gin-gonic/gin v1.10.0\n"}),
+            ("actix-web", {"Cargo.toml": "[dependencies]\nactix-web = \"4\"\n"}),
+        ]
+        for expected, files in cases:
+            with self.subTest(expected=expected):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    for name, content in files.items():
+                        path = root / name
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_text(content, encoding="utf-8")
+                    stack = vibe_core.detect_stack(root)
+                    self.assertIn(expected, stack["frameworks"])
+
+    def test_laravel_framework_context_and_php_dependency_graph(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "composer.json").write_text(
+            json.dumps({"require": {"laravel/framework": "^12.0"}}),
+            encoding="utf-8",
+        )
+        (root / "artisan").write_text("", encoding="utf-8")
+        routes = root / "routes"
+        routes.mkdir()
+        (routes / "web.php").write_text(
+            "<?php\nuse App\\Services\\OrderService;\nRoute::get('/orders', fn () => []);\n",
+            encoding="utf-8",
+        )
+        service = root / "app" / "Services"
+        service.mkdir(parents=True)
+        (service / "OrderService.php").write_text(
+            "<?php\nnamespace App\\Services;\nclass OrderService {}\n",
+            encoding="utf-8",
+        )
+
+        context = vibe_core.project_context(root)
+        self.assertIn("laravel", context["frameworks"])
+        framework = json.loads(
+            (root / ".vibe/runtime/framework-map.json").read_text(encoding="utf-8")
+        )
+        self.assertTrue(any(route["path"] == "/orders" for route in framework["routes"]))
+
+        graph = vibe_core.dependency_graph(root)
+        edges = {(item["from"], item["to"]) for item in graph["edges"]}
+        self.assertIn(("routes/web.php", "app/Services/OrderService.php"), edges)
+        self.assertIn("php-static", graph["scanners"])
+
+    def test_java_go_and_rust_dependency_scanners(self):
+        fixtures = []
+
+        java_files = {
+            "pom.xml": "<project></project>",
+            "src/main/java/com/example/A.java": "package com.example; import com.example.B; class A {}",
+            "src/main/java/com/example/B.java": "package com.example; class B {}",
+        }
+        fixtures.append(("java-kotlin-imports", java_files, ("src/main/java/com/example/A.java", "src/main/java/com/example/B.java")))
+
+        go_files = {
+            "go.mod": "module example.com/app\n",
+            "cmd/app/main.go": 'package main\nimport "example.com/app/internal/orders"\nfunc main() {}\n',
+            "internal/orders/orders.go": "package orders\n",
+        }
+        fixtures.append(("go-module-imports", go_files, ("cmd/app/main.go", "internal/orders/orders.go")))
+
+        rust_files = {
+            "Cargo.toml": "[package]\nname=\"demo\"\nversion=\"0.1.0\"\n",
+            "src/lib.rs": "mod orders;\n",
+            "src/orders.rs": "pub fn run() {}\n",
+        }
+        fixtures.append(("rust-mod-use", rust_files, ("src/lib.rs", "src/orders.rs")))
+
+        for scanner, files, expected_edge in fixtures:
+            with self.subTest(scanner=scanner):
+                temp, root = self.make_repo()
+                try:
+                    for name, content in files.items():
+                        path = root / name
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_text(content, encoding="utf-8")
+                    graph = vibe_core.dependency_graph(root)
+                    edges = {(item["from"], item["to"]) for item in graph["edges"]}
+                    self.assertIn(scanner, graph["scanners"])
+                    self.assertIn(expected_edge, edges)
+                finally:
+                    temp.cleanup()
+
     def test_new_cycle_is_detected_in_dependency_diff(self):
         temp, root = self.make_repo()
         self.addCleanup(temp.cleanup)
