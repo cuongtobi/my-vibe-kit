@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "architecture": {
     "profile": "auto",
     "default_profile": "standard",
@@ -14,8 +14,17 @@
     }
   },
   "context": {
-    "max_dependency_depth": 3,
-    "max_files": 20000
+    "strategy": "persistent-incremental",
+    "max_dependency_depth": 2,
+    "max_files": 20000,
+    "max_source_files": 20,
+    "max_test_files": 10,
+    "max_related_modules": 8
+  },
+  "index": {
+    "backend": "json",
+    "use_git_delta": true,
+    "full_rebuild_on_schema_change": true
   },
   "dependency": {
     "fail_on_new_cycles": true
@@ -25,6 +34,7 @@
     "commands": []
   },
   "tasks": {
-    "keep_history": true
+    "keep_history": true,
+    "auto_load_history": false
   }
 }
