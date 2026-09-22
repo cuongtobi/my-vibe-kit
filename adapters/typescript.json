@@ -1,9 +1,0 @@
-{
-  "name": "typescript-javascript",
-  "markers": ["package.json", "tsconfig.json", "pnpm-lock.yaml", "yarn.lock"],
-  "dependency": {
-    "baseline": "static-relative-imports",
-    "recommended": ["dependency-cruiser", "nx-for-monorepos"]
-  },
-  "verification_recommended": ["typescript", "eslint", "vitest-or-jest", "playwright-when-relevant"]
-}
