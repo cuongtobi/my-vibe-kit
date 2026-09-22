@@ -17,7 +17,7 @@ from vibe_core import (
     status,
     verify,
 )
-from vibe_stacks import framework_context
+from vibe_stacks import effective_adapter, framework_context
 
 
 def emit(data: object) -> None:
@@ -37,6 +37,7 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("context", help="Build .vibe/runtime/project-map.json.")
     sub.add_parser("deps", help="Build .vibe/runtime/dependency-map.json.")
     sub.add_parser("framework", help="Build framework-aware route/component context.")
+    sub.add_parser("adapter", help="Resolve the active language + framework adapters.")
 
     impact = sub.add_parser("impact", help="Compute reverse dependency and test impact.")
     impact.add_argument("files", nargs="*", help="Target files. Defaults to changed git files.")
@@ -84,6 +85,9 @@ def main() -> int:
         return 0
     if args.command == "framework":
         emit(framework_context(repo))
+        return 0
+    if args.command == "adapter":
+        emit(effective_adapter(repo))
         return 0
     if args.command == "impact":
         emit(impact_analysis(repo, args.files or None))
