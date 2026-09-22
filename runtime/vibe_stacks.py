@@ -47,7 +47,7 @@ def _python_text(root: Path) -> str:
 def detect_stack(root: Path) -> Dict[str, object]:
     markers = {
         'python':['pyproject.toml','requirements.txt','setup.py','setup.cfg','Pipfile'],
-        'javascript':['package.json'], 'typescript':['tsconfig.json'], 'php':['composer.json'],
+        'javascript':['package.json'], 'typescript':['tsconfig.json'], 'php':['composer.json','wp-config.php'],
         'java':['pom.xml','build.gradle','build.gradle.kts'], 'go':['go.mod'], 'rust':['Cargo.toml'],
         'dotnet':['global.json'],
     }
@@ -61,10 +61,28 @@ def detect_stack(root: Path) -> Dict[str, object]:
         if re.search(r'(^|[^a-z0-9_-])'+re.escape(name)+r'([^a-z0-9_-]|$)', py) or (name=='django' and (root/'manage.py').exists()):
             frameworks.append(name); evidence[name] = ['python dependency or framework marker']
     pkg = _deps(_json(root/'package.json'), ['dependencies','devDependencies','peerDependencies','optionalDependencies'])
-    for dep,name in [('express','express'),('@nestjs/core','nestjs'),('next','nextjs')]:
-        if dep in pkg: frameworks.append(name); evidence[name] = ['package dependency: '+dep]
+    frontend_deps = [
+        ('express','express'),
+        ('@nestjs/core','nestjs'),
+        ('react','react'),
+        ('vue','vue'),
+        ('nuxt','nuxt'),
+        ('svelte','svelte'),
+        ('@sveltejs/kit','sveltekit'),
+        ('vite','vite'),
+        ('next','nextjs'),
+    ]
+    for dep,name in frontend_deps:
+        if dep in pkg:
+            frameworks.append(name)
+            evidence[name] = ['package dependency: '+dep]
     composer = _deps(_json(root/'composer.json'), ['require','require-dev'])
     if 'laravel/framework' in composer or (root/'artisan').exists(): frameworks.append('laravel'); evidence['laravel']=['laravel/framework or artisan']
+    wordpress_composer = any(dep in composer for dep in ('johnpbloch/wordpress-core','roots/wordpress','wordpress/wordpress'))
+    wordpress_marker = (root/'wp-config.php').exists() or (root/'wp-content').exists()
+    if wordpress_composer or wordpress_marker:
+        frameworks.append('wordpress')
+        evidence['wordpress']=['WordPress core/composer dependency or wp-config.php/wp-content marker']
     java = '\n'.join(_text(root/n).lower() for n in ['pom.xml','build.gradle','build.gradle.kts'])
     if 'spring-boot' in java or 'org.springframework' in java: frameworks.append('spring'); evidence['spring']=['Spring dependency']
     gomod = _text(root/'go.mod').lower()
@@ -247,6 +265,7 @@ SPRING_RE=re.compile(r'@(RequestMapping|GetMapping|PostMapping|PutMapping|PatchM
 SPRING_PATH_RE=re.compile(r'(?:value\s*=\s*|path\s*=\s*)?[\'"]([^\'"]+)[\'"]')
 GO_ROUTE_RE=re.compile(r'\b(?:[A-Za-z_][A-Za-z0-9_]*\.)?(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD|Get|Post|Put|Patch|Delete|Options|Head)\s*\(\s*["`]([^"`]+)["`]')
 ACTIX_RE=re.compile(r'#\s*\[\s*(get|post|put|patch|delete|head)\s*\(\s*"([^"]+)"\s*\)\s*\]',re.I)
+WORDPRESS_REST_RE=re.compile(r'register_rest_route\s*\(\s*[\'\"]([^\'\"]+)[\'\"]\s*,\s*[\'\"]([^\'\"]+)[\'\"]',re.I)
 
 
 def framework_context(root: Path, files: Optional[Sequence[Path]]=None) -> Dict[str,object]:
@@ -267,6 +286,16 @@ def framework_context(root: Path, files: Optional[Sequence[Path]]=None) -> Dict[
             text=_text(p); c=NEST_CONTROLLER_RE.search(text)
             if c: ctrls.append({'file':p.relative_to(root).as_posix(),'base_path':c.group(1),'handlers':[{'method':m.group(1).upper(),'path':m.group(2)} for m in NEST_METHOD_RE.finditer(text)]})
         components['nestjs_controllers']=ctrls
+    if 'react' in frameworks:
+        components['react_components']=sorted(p.relative_to(root).as_posix() for p in fs if p.suffix.lower() in {'.jsx','.tsx'} and re.search(r'\b(?:function|const|class)\s+[A-Z][A-Za-z0-9_]*', _text(p)))
+        components['react_hooks']=sorted(p.relative_to(root).as_posix() for p in fs if p.suffix.lower() in {'.js','.jsx','.ts','.tsx'} and re.search(r'\buse[A-Z][A-Za-z0-9_]*\s*\(', _text(p)))
+    if 'vue' in frameworks or 'nuxt' in frameworks:
+        components['vue_components']=sorted(p.relative_to(root).as_posix() for p in fs if p.suffix.lower()=='.vue')
+        components['vue_composables']=sorted(p.relative_to(root).as_posix() for p in fs if 'composables' in p.relative_to(root).parts)
+    if 'svelte' in frameworks or 'sveltekit' in frameworks:
+        components['svelte_components']=sorted(p.relative_to(root).as_posix() for p in fs if p.suffix.lower()=='.svelte')
+    if 'vite' in frameworks:
+        components['vite_config']=sorted(p.relative_to(root).as_posix() for p in fs if p.name in ('vite.config.js','vite.config.ts','vite.config.mjs','vite.config.mts'))
     if 'nextjs' in frameworks:
         for p in fs:
             if p.suffix.lower() not in {'.js','.jsx','.ts','.tsx'}: continue
@@ -277,6 +306,37 @@ def framework_context(root: Path, files: Optional[Sequence[Path]]=None) -> Dict[
                 seg=parts[1:]; seg[-1]=Path(seg[-1]).stem
                 if seg[-1]=='index': seg=seg[:-1]
                 routes.append({'framework':'nextjs','file':rel.as_posix(),'method':'FILE_ROUTE','path':'/'+('/'.join(seg)) if seg else '/'})
+        components['nextjs_client_components']=sorted(p.relative_to(root).as_posix() for p in fs if p.suffix.lower() in {'.js','.jsx','.ts','.tsx'} and _text(p).lstrip().startswith(("'use client'","\"use client\"")))
+    if 'nuxt' in frameworks:
+        for p in fs:
+            rel=p.relative_to(root); parts=list(rel.parts)
+            if p.suffix.lower()=='.vue' and parts and parts[0]=='pages':
+                seg=list(parts[1:]); seg[-1]=Path(seg[-1]).stem
+                if seg[-1]=='index': seg=seg[:-1]
+                routes.append({'framework':'nuxt','file':rel.as_posix(),'method':'FILE_ROUTE','path':'/'+('/'.join(seg)) if seg else '/'})
+        components['nuxt_server_routes']=sorted(p.relative_to(root).as_posix() for p in fs if len(p.relative_to(root).parts)>=3 and p.relative_to(root).parts[:2]==('server','api'))
+    if 'sveltekit' in frameworks:
+        for p in fs:
+            rel=p.relative_to(root); parts=list(rel.parts)
+            if 'routes' in parts and p.name.startswith('+page'):
+                idx=parts.index('routes'); seg=[x for x in parts[idx+1:-1]]
+                routes.append({'framework':'sveltekit','file':rel.as_posix(),'method':'FILE_ROUTE','path':'/'+('/'.join(seg)) if seg else '/'})
+        components['sveltekit_server_files']=sorted(p.relative_to(root).as_posix() for p in fs if p.name.startswith(('+server','+page.server','+layout.server')))
+    if 'wordpress' in frameworks:
+        plugin_files=[]; theme_files=[]; hooks=[]; rest_routes=[]
+        for p in fs:
+            rel=p.relative_to(root); parts=rel.parts
+            if len(parts)>=3 and parts[0]=='wp-content' and parts[1]=='plugins': plugin_files.append(rel.as_posix())
+            if len(parts)>=3 and parts[0]=='wp-content' and parts[1]=='themes': theme_files.append(rel.as_posix())
+            if p.suffix.lower()=='.php':
+                text=_text(p)
+                if re.search(r'\b(add_action|add_filter|add_shortcode)\s*\(', text): hooks.append(rel.as_posix())
+                for m in WORDPRESS_REST_RE.finditer(text):
+                    rest_routes.append({'framework':'wordpress','file':rel.as_posix(),'method':'REST_ROUTE','path':'/'+m.group(1).strip('/')+'/'+m.group(2).lstrip('/')})
+        components['wordpress_plugins']=sorted(plugin_files)
+        components['wordpress_themes']=sorted(theme_files)
+        components['wordpress_hook_files']=sorted(hooks)
+        routes.extend(rest_routes)
     if 'laravel' in frameworks:
         for p in fs:
             rel=p.relative_to(root)
