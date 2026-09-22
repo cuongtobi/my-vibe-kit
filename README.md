@@ -1,74 +1,99 @@
 # my-vibe-kit
 
-A small, personal **vibe-coding skills template** for working on real repositories with Codex, Claude, and Google Antigravity.
+[Tiếng Việt](README_vi.md)
+
+A small, personal **vibe-coding skills kit** for working on real repositories with Codex, Claude Code, and Google Antigravity.
 
 The kit intentionally keeps the agent surface small:
 
 - `vibe` — orchestrates the full change.
-- `plan` — builds context, dependency/impact analysis, and a change plan.
+- `plan` — builds bounded context, dependency/impact analysis, and a change plan.
 - `build` — implements only the approved scope.
 - `verify` — proves the change with runtime evidence.
 
-The same skills are materialized into each agent's native project layout by `install.py`, so you maintain **one source of truth** instead of three copies.
+The same four skills are materialized into each agent's native project layout by `install.py`, so there is one source of truth instead of separate copies for each agent.
 
-## Cài nhanh (Tiếng Việt)
+## Quick start
 
-Cài vào một repo đang làm việc:
+Clone the kit:
 
 ```bash
 git clone https://github.com/cuongtobi/my-vibe-kit.git
 cd my-vibe-kit
-python install.py --target /duong-dan/toi/project --agents codex claude antigravity
 ```
 
-Sau đó mở project bằng Codex, Claude Code hoặc Antigravity và dùng bình thường:
+Install it into a project:
+
+```bash
+python install.py --target /path/to/your-project --agents codex claude antigravity
+```
+
+Windows PowerShell:
+
+```powershell
+python .\install.py --target C:\code\your-project --agents codex claude antigravity
+```
+
+Preview without writing:
+
+```bash
+python install.py --target /path/to/your-project --agents all --dry-run
+```
+
+Then open the target project with Codex, Claude Code, or Antigravity and use the workflow normally:
 
 ```text
-Use vibe to add tính năng export CSV cho báo cáo.
+Use vibe to add CSV export to the report.
 ```
 
 ```text
-Use vibe to fix lỗi backtest crash khi history rỗng.
+Use vibe to fix the crash when backtest history is empty.
 ```
 
 ```text
-Use plan to phân tích việc đổi SQLite sang PostgreSQL. Chưa sửa code.
+Use plan to analyze replacing SQLite with PostgreSQL. Do not edit code yet.
 ```
 
-Workflow chính:
+Main workflow:
 
 ```text
 vibe
-  -> plan: context + dependency + impact + plan
-  -> build: code + test
+  -> plan: persistent context + dependency + impact + plan
+  -> build: code + tests
   -> verify: dependency diff + lint/type/test/build + diff review
 ```
 
-Context/dependency được lưu bền vững dưới `.vibe/state/` và được tái sử dụng giữa các session. Session mới không mặc định quét lại toàn bộ repo: runtime kiểm tra Git state, dùng cache khi repo không đổi, hoặc refresh theo delta khi chỉ một số file thay đổi. Chỉ context liên quan bị đưa vào model. Với bug, workflow bắt buộc ưu tiên:
+For bugs:
 
 ```text
-reproduce -> root cause -> regression test fail -> minimal fix -> regression test pass -> verify
+REPRODUCE
+-> ROOT CAUSE
+-> FAILING REGRESSION TEST
+-> MINIMAL FIX
+-> PASSING REGRESSION TEST
+-> AFFECTED TESTS
+-> VERIFY
 ```
 
-Nếu project chưa có test/lint/typecheck command phù hợp, hãy sửa `.vibe/config.json`. Toolkit sẽ trả `NEEDS_VERIFICATION_CONFIG`, không tự nhận `PASS_VERIFIED`.
+If the target project has no reliable test/lint/typecheck/build command configured, edit `.vibe/config.json`. The kit returns `NEEDS_VERIFICATION_CONFIG` instead of pretending the project is verified.
 
 ## Design goals
 
 - One personal workflow across Codex, Claude Code, and Antigravity.
-- Works from native/desktop agent surfaces where filesystem skills are supported and from CLI/IDE agents.
+- Works with project-local filesystem skills and CLI/IDE agent workflows.
 - File-based context instead of relying on chat history.
 - Persistent JSON context/dependency cache across sessions.
-- Git-aware incremental refresh instead of full repository rescans on every task.
-- Bounded relevant-context retrieval before agent reasoning.
-- Explicit change modes: `feature`, `change`, `bug_fix`, `refactor`, `hotfix`.
+- Git-aware incremental refresh instead of rescanning the whole repository for every task.
+- Bounded relevant-context retrieval before model reasoning.
+- Explicit modes: `feature`, `change`, `bug_fix`, `refactor`, `hotfix`.
 - Minimal-change implementation by default.
-- Runtime verification evidence before completion.
-- No mandatory Python packages beyond the standard library for the kit itself.
-- Optional integration with stronger ecosystem tools such as Grimp, Import Linter, dependency-cruiser, Nx, Deptrac, PHPStan/Larastan, ArchUnit, Cargo tooling, Go tooling, Ruff, Pyright, pytest, TypeScript, ESLint, and Vitest.
+- Runtime evidence before completion.
+- Standard-library-only Python runtime for the kit itself.
+- Optional integration with stronger ecosystem tooling when a project already uses it.
 
 ## Supported languages and frameworks
 
-The workflow is language-agnostic, while the runtime now has stack-aware adapters and baseline dependency scanners.
+The workflow is language-agnostic. The runtime adds stack-aware adapters and baseline dependency scanners.
 
 | Language | Baseline dependency scan | Framework adapters |
 | --- | --- | --- |
@@ -78,10 +103,10 @@ The workflow is language-agnostic, while the runtime now has stack-aware adapter
 | PHP | namespace/use + literal require/include graph | Laravel |
 | Java/Kotlin | package/import graph | Spring |
 | Go | module-local import graph | Gin, Fiber |
-| Rust | mod + crate::use graph | Actix Web |
+| Rust | mod + `crate::use` graph | Actix Web |
 | Other | project/file map | generic fallback |
 
-Framework adapters add framework-aware context such as routes, controllers/routers, models/components, middleware/providers, and framework-specific verification recommendations.
+Framework adapters add route/component/controller/model/provider context and framework-specific verification guidance.
 
 The runtime resolves:
 
@@ -95,13 +120,11 @@ active-adapter.json
 plan / impact / build / verify
 ```
 
-This means the four core skills do not need separate Laravel/Flask/Express variants.
+The four core skills therefore do not need separate Flask/Laravel/Express/etc. variants.
 
-## Architecture policy for new projects
+## Architecture policy
 
-For greenfield projects, the kit now has an explicit architecture policy instead of letting each agent invent a different structure.
-
-Default behavior:
+For greenfield projects, the default policy is:
 
 ```text
 feature-first
@@ -110,10 +133,10 @@ modular layered architecture
 +
 framework-native conventions
 +
-clean-code rules
+Clean Code rules
 ```
 
-The default effective profile is `standard`. It uses framework conventions first and keeps architecture lightweight:
+The default effective profile is `standard`:
 
 ```text
 presentation / route / controller
@@ -125,14 +148,14 @@ domain / business rules
 repository / data / infrastructure boundary
 ```
 
-This is guidance, not a reason to create every layer for every feature. Repositories, interfaces, ports, wrappers, and extra abstractions are added only when a real boundary, variation, reuse, or testing need exists.
+This is guidance, not a requirement to create every layer in every feature. Repositories, interfaces, ports, wrappers, factories, and adapters are added only when a real boundary, variation, reuse, or testing need justifies them.
 
-The kit switches to a Clean/Hexagonal-style inward dependency policy only when:
+The kit switches to Clean/Hexagonal-style inward dependency rules only when:
 
-- you explicitly set `architecture.profile` to `strict`, or
+- `architecture.profile` is explicitly set to `strict`, or
 - `profile=auto` and the project crosses the configured strict thresholds.
 
-Default thresholds:
+Default architecture configuration:
 
 ```json
 {
@@ -152,7 +175,7 @@ Default thresholds:
 }
 ```
 
-To force strict mode:
+Force strict mode:
 
 ```json
 {
@@ -162,7 +185,7 @@ To force strict mode:
 }
 ```
 
-Strict mode uses the dependency direction:
+Strict dependency direction:
 
 ```text
 presentation
@@ -176,15 +199,15 @@ ports
 infrastructure adapters
 ```
 
-Framework-specific guidance is still preserved. For example, Laravel remains Laravel-native, NestJS remains module/provider-based, Django remains app-oriented, and Spring prefers package-by-feature. Strict mode changes dependency boundaries; it does not discard the framework's normal conventions.
+Framework conventions still win over generic architecture ceremony. Laravel stays Laravel-native, Django stays app-oriented, NestJS stays module/provider-oriented, Spring prefers package-by-feature, and so on.
 
-The runtime writes the resolved decision to:
+The resolved policy is materialized to:
 
 ```text
 .vibe/runtime/architecture-policy.json
 ```
 
-That file contains:
+It contains:
 
 - requested/effective profile,
 - selected pattern,
@@ -194,517 +217,20 @@ That file contains:
 - dependency-direction rules,
 - Clean Code rules.
 
-Core Clean Code defaults include intent-revealing naming, focused functions/modules, low nesting, thin transport handlers, explicit errors/dependencies, no hidden mutable global state, no speculative abstraction, behavior-focused tests, and simple code over clever code.
+Core Clean Code defaults include intent-revealing naming, focused functions/modules, shallow control flow where practical, thin transport handlers, explicit errors/dependencies, no hidden mutable global state, no speculative abstraction, behavior-focused tests, and simple code over clever code.
 
-## How it works
+## Persistent context architecture
 
-```text
-User request
-    |
-    v
-  vibe
-    |
-    +--> plan
-    |     +--> load AGENTS.md + config
-    |     +--> validate persistent state
-    |     +--> CACHE_HIT / INCREMENTAL_REFRESH / FULL_REBUILD
-    |     +--> materialize current context + dependency graph
-    |     +--> build bounded relevant-context.json
-    |     +--> impact analysis
-    |     +--> write task plan
-    |
-    +--> build
-    |     +--> read current task only
-    |     +--> read bounded relevant source/tests
-    |     +--> smallest correct change
-    |     +--> tests/regression test
-    |
-    +--> verify
-          +--> refresh cached context/dependencies
-          +--> dependency snapshot after + diff
-          +--> cycles/architecture checks
-          +--> configured lint/type/test/build commands
-          +--> git diff review
-          +--> verification.json
-```
+The kit does not treat chat history or old task folders as the source of truth.
 
-The agent skills contain methodology. The scripts under `.vibe/tools/` produce deterministic repository facts. The persistent cache is an optimization only; it never turns into verification evidence by itself.
-
-## Repository layout
+It separates four things:
 
 ```text
-my-vibe-kit/
-├── AGENTS.md
-├── CLAUDE.md
-├── install.py
-├── vibe.config.example.json
-├── skills/
-│   ├── vibe/SKILL.md
-│   ├── plan/SKILL.md
-│   ├── build/SKILL.md
-│   └── verify/SKILL.md
-├── runtime/
-│   ├── vibe.py
-│   ├── vibe_core.py
-│   ├── vibe_stacks.py
-│   ├── vibe_architecture.py
-│   └── vibe_state.py
-├── adapters/
-│   ├── languages/
-│   │   ├── python.json
-│   │   ├── javascript.json
-│   │   ├── typescript.json
-│   │   ├── php.json
-│   │   ├── java.json
-│   │   ├── go.json
-│   │   ├── rust.json
-│   │   └── generic.json
-│   └── frameworks/
-│       ├── flask.json
-│       ├── fastapi.json
-│       ├── django.json
-│       ├── express.json
-│       ├── nestjs.json
-│       ├── nextjs.json
-│       ├── laravel.json
-│       ├── spring.json
-│       ├── gin.json
-│       ├── fiber.json
-│       └── actix-web.json
-├── integrations/
-│   └── antigravity/
-│       ├── rules/vibe-project.md
-│       └── workflows/
-│           ├── vibe.md
-│           ├── plan.md
-│           ├── build.md
-│           └── verify.md
-├── templates/
-│   ├── AGENTS.md
-│   └── CLAUDE.md
-└── tests/
+durable project truth
+persistent local state
+current-task runtime
+cold task history
 ```
-
-After project installation, a target repository receives a layout similar to:
-
-```text
-your-project/
-├── AGENTS.md
-├── CLAUDE.md
-├── .agents/
-│   ├── skills/
-│   │   ├── vibe/
-│   │   ├── plan/
-│   │   ├── build/
-│   │   └── verify/
-│   ├── rules/              # Antigravity
-│   └── workflows/          # Antigravity slash workflows
-├── .claude/
-│   └── skills/             # Claude Code project skills
-└── .vibe/
-    ├── config.json
-    ├── adapters/
-    ├── tools/
-    │   ├── vibe.py
-    │   ├── vibe_core.py
-    │   ├── vibe_stacks.py
-    │   ├── vibe_architecture.py
-    │   └── vibe_state.py
-    ├── state/              # persistent local cache; ignored by .vibe/.gitignore
-    ├── runtime/            # current-task materialization; ignored by .vibe/.gitignore
-    └── tasks/              # cold task history; not auto-loaded
-```
-
-## Requirements
-
-For installing the kit:
-
-- Python 3.9+
-- Git
-- At least one supported coding agent
-
-The kit runtime itself is standard-library-only. Your target repository can still use any language/toolchain.
-
-## Agent compatibility
-
-| Surface | Project skills | Personal/global skills | Notes |
-| --- | --- | --- | --- |
-| Codex desktop app / CLI / IDE | `.agents/skills/` | `~/.agents/skills/` | Codex desktop shares the Codex skills/config ecosystem with CLI/IDE. |
-| Claude Code | `.claude/skills/` | `~/.claude/skills/` | Filesystem discovery is native to Claude Code. |
-| Claude app / claude.ai | upload ZIP | upload ZIP | Run `python install.py --bundle-claude`, then upload the desired skill in the product UI. |
-| Antigravity IDE | `.agents/skills/` | `~/.gemini/config/skills/` | Project install also adds rules and slash workflows. |
-| Antigravity CLI | `.agents/skills/` | `~/.gemini/antigravity-cli/skills/` compatibility copy | Project scope is recommended because it travels with the repo. |
-
-For **full deterministic context/dependency/verification**, install the kit into each repository. A global skill install gives the agent the workflow everywhere, but a project install is what adds `.vibe/tools/`, `.vibe/config.json`, task storage, and repository-local verification configuration.
-
-Current format/location references:
-
-- OpenAI Skills: https://developers.openai.com/docs/build-skills
-- Anthropic Agent Skills: https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview
-- Google Antigravity Skills: https://codelabs.developers.google.com/getting-started-with-antigravity-skills
-
-## Quick start
-
-Clone the kit once:
-
-```bash
-git clone https://github.com/cuongtobi/my-vibe-kit.git
-cd my-vibe-kit
-```
-
-Install it into a project:
-
-```bash
-python install.py --target /path/to/your-project --agents codex claude antigravity
-```
-
-On Windows PowerShell:
-
-```powershell
-python .\install.py --target C:\code\your-project --agents codex claude antigravity
-```
-
-Preview without writing:
-
-```bash
-python install.py --target /path/to/your-project --agents all --dry-run
-```
-
-The installer does not overwrite conflicting project files unless you explicitly pass `--force`.
-
-## Agent-specific installation
-
-### Codex
-
-Repository skills are installed to:
-
-```text
-<project>/.agents/skills/
-```
-
-That layout is shared with Antigravity project skills, so installing both does not create duplicate skill sources in the target repository.
-
-Recommended project install:
-
-```bash
-python install.py --target /path/to/project --agents codex
-```
-
-For personal/global Codex skills:
-
-```bash
-python install.py --scope global --agents codex
-```
-
-This installs skills under:
-
-```text
-~/.agents/skills/
-```
-
-### Codex desktop app
-
-Codex desktop uses the same Codex skills/config ecosystem as CLI/IDE. Install the skills globally or into the repository, restart/reopen the project if the skills were added while Codex was already running, and open the local repository in the Codex view. The repository-local install is recommended because the deterministic runtime and task context travel with the project.
-
-Use from Codex desktop/CLI/IDE by describing the task normally, or explicitly ask it to use the `vibe`, `plan`, `build`, or `verify` skill.
-
-Example:
-
-```text
-Use the vibe skill to fix the backtest stop-loss fill bug when the market gaps below the stop.
-```
-
-### Claude Code
-
-Claude Code project skills live under:
-
-```text
-<project>/.claude/skills/
-```
-
-Install:
-
-```bash
-python install.py --target /path/to/project --agents claude
-```
-
-The installer also creates `CLAUDE.md` when it does not already exist. The generated file imports the shared `AGENTS.md`, so project rules stay in one place.
-
-Personal Claude Code skills:
-
-```bash
-python install.py --scope global --agents claude
-```
-
-They are installed to:
-
-```text
-~/.claude/skills/
-```
-
-For Claude app / claude.ai surfaces that accept uploaded custom Skills, create uploadable Skill archives locally:
-
-```bash
-python install.py --bundle-claude
-```
-
-The command writes ZIP files to `dist/claude-skills/`. Upload the desired skill from the Claude product's Skills/Features UI. The ZIP creation happens on your machine; no repository access is required.
-
-### Google Antigravity IDE / native app
-
-Antigravity workspace skills use:
-
-```text
-<project>/.agents/skills/
-```
-
-The kit additionally installs:
-
-```text
-<project>/.agents/rules/vibe-project.md
-<project>/.agents/workflows/vibe.md
-<project>/.agents/workflows/plan.md
-<project>/.agents/workflows/build.md
-<project>/.agents/workflows/verify.md
-```
-
-Install:
-
-```bash
-python install.py --target /path/to/project --agents antigravity
-```
-
-You can then use saved workflows such as:
-
-```text
-/vibe Fix the duplicate order bug in paper trading
-/plan Add CSV export to the report screen
-/build
-/verify
-```
-
-### Antigravity CLI
-
-Project scope uses the same `.agents/skills/` directory, so the normal project install is the recommended approach.
-
-For global installation:
-
-```bash
-python install.py --scope global --agents antigravity
-```
-
-The installer writes to the Antigravity global skills location and also creates the Antigravity CLI compatibility copy when applicable.
-
-## First-time setup in a target project
-
-After installing, open:
-
-```text
-.vibe/config.json
-```
-
-The installer detects the repository language/framework stack, seeds the architecture policy and persistent-context policy, and discovers verification commands when it can do so safely. It also copies the language/framework adapter catalog into `.vibe/adapters/`.
-
-The default context configuration for personal projects is:
-
-```json
-{
-  "context": {
-    "strategy": "persistent-incremental",
-    "max_dependency_depth": 2,
-    "max_files": 20000,
-    "max_source_files": 20,
-    "max_test_files": 10,
-    "max_related_modules": 8
-  },
-  "index": {
-    "backend": "json",
-    "use_git_delta": true,
-    "full_rebuild_on_schema_change": true
-  },
-  "tasks": {
-    "keep_history": true,
-    "auto_load_history": false
-  }
-}
-```
-
-The default stays intentionally simple: JSON cache + Git delta, no SQLite and no mandatory semantic index.
-
-Examples of automatically discovered gates include:
-
-- Node/TypeScript: package scripts such as `lint`, `typecheck`, `test`, `build`.
-- Python: Ruff, Pyright/mypy, pytest when declared.
-- Django: `python manage.py check`, plus Django tests when pytest is not configured.
-- Laravel/PHP: Composer test scripts, PHPStan/Larastan, Pest/PHPUnit, or `php artisan test`.
-- Java/Spring: Maven or Gradle tests.
-- Go: `go test ./...`.
-- Rust: `cargo check` and `cargo test`.
-
-For a Node/TypeScript project, package scripts are preferred. If `package.json` contains:
-
-```json
-{
-  "scripts": {
-    "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "build": "vite build"
-  }
-}
-```
-
-the generated configuration can invoke those scripts.
-
-For Python, the installer looks for common local tooling and project configuration. You can edit the commands explicitly:
-
-```json
-{
-  "verification": {
-    "commands": [
-      ["python", "-m", "ruff", "check", "."],
-      ["python", "-m", "pytest", "-q"]
-    ],
-    "require_commands": true
-  }
-}
-```
-
-If no reliable verification command can be determined, the kit does **not** pretend the project is verified. `verify` reports that configuration is required instead of emitting `PASS_VERIFIED`.
-
-For a new project, normally leave `architecture.profile` as `auto`. The resulting profile is `standard` until the project crosses the configured size thresholds. Use `strict` manually for systems where you intentionally want Clean/Hexagonal boundaries from the start.
-
-## Core workflow
-
-### 1. Full vibe workflow
-
-Typical request:
-
-```text
-Use vibe to add percentage-based trailing stops while preserving old fixed-point configs.
-```
-
-The orchestrator selects a mode and follows:
-
-```text
-PLAN -> BUILD -> VERIFY
-```
-
-### 2. Plan only
-
-Use this when you want to inspect scope before editing:
-
-```text
-Use plan to analyze adding OAuth login. Do not modify code.
-```
-
-The plan skill:
-
-1. Reads `AGENTS.md` and `.vibe/config.json`.
-2. Starts the current task record.
-3. Runs `context`, which reuses or incrementally refreshes persistent context and materializes framework/adapter/architecture facts.
-4. Runs `deps`, which reuses or incrementally refreshes the dependency graph.
-5. Runs `relevant` to produce a bounded list of source files, tests, modules, dependencies, and consumers for this task.
-6. Reads only that bounded context first and expands selectively when evidence requires it.
-7. Runs impact analysis for the identified target files.
-8. Produces the implementation plan and verification strategy.
-
-### 3. Build from an existing plan
-
-```text
-Use build to implement the current vibe task.
-```
-
-Build follows the current task artifacts and does not expand scope silently.
-
-### 4. Verify
-
-```text
-Use verify on the current change.
-```
-
-Verify refreshes dependency/context facts through the same cache/delta engine, compares snapshots, runs configured commands, and records evidence. A cache hit does not skip the configured verification commands.
-
-## Change modes
-
-The same four skills cover different kinds of work.
-
-### Feature
-
-```text
-Add CSV export to the trades report.
-```
-
-Plan focus:
-
-- desired behavior
-- architecture placement
-- dependency impact
-- acceptance criteria
-- new tests
-
-### Change
-
-```text
-Change trailing stops from fixed points to percentages while keeping old configs working.
-```
-
-Plan focus:
-
-- current behavior
-- desired behavior
-- compatibility
-- affected consumers
-- migration/config impact
-
-### Bug fix
-
-```text
-Backtest fills a stop order at the stop price when the market gaps through it.
-```
-
-Mandatory bug workflow:
-
-```text
-REPRODUCE
-   -> ROOT CAUSE
-   -> FAILING REGRESSION TEST
-   -> MINIMAL FIX
-   -> PASSING REGRESSION TEST
-   -> AFFECTED TESTS
-   -> VERIFY
-```
-
-The agent should not call a bug fixed merely because the symptom disappeared manually.
-
-### Refactor
-
-```text
-Split the backtest engine into smaller modules without changing behavior.
-```
-
-Refactor focus:
-
-- capture baseline behavior
-- dependency snapshot before
-- preserve public API unless explicitly allowed
-- dependency snapshot after
-- prove behavior remains unchanged
-
-### Hotfix
-
-Hotfixes deliberately minimize scope:
-
-- no opportunistic cleanup
-- no dependency upgrades unless required for the fix
-- reproduce when possible
-- smallest patch
-- regression test
-- critical affected verification
-
-## Runtime context
-
-The kit does not treat chat history or old task folders as the source of truth. It separates durable rules, persistent machine cache, current-task materialization, and cold task history.
 
 ### Durable project truth
 
@@ -734,46 +260,50 @@ Reusable local state lives in:
 └── last-architecture.json
 ```
 
-`.vibe/state/` is ignored by `.vibe/.gitignore`. It is a local performance cache, not project truth and not verification evidence.
+`.vibe/state/` is ignored by `.vibe/.gitignore`.
 
-`index-state.json` records the cache schema/scanner version plus the Git repository state associated with each cached artifact. For a clean repository, the Git commit is enough. For dirty or untracked application files, the runtime hashes only those changed files, not the entire repository.
+It is a performance cache, not project truth and not verification evidence.
+
+`index-state.json` records cache schema/scanner versions and the Git repository state associated with cached artifacts.
+
+For a clean repository, Git HEAD is sufficient. For dirty or untracked application files, the runtime hashes only those changed files instead of hashing the whole repository.
 
 ### Cache modes
 
-Every `context` and `deps` request resolves to one of three modes:
+Each context/dependency refresh resolves to one of three states:
 
 ```text
 CACHE_HIT
-    repo state unchanged
-    -> reuse last context/dependency directly
+    repository state unchanged
+    -> reuse last context/dependency
 
 INCREMENTAL_REFRESH
     Git delta detected
     -> update changed files / affected language slice only
 
 FULL_REBUILD
-    first run, cache missing/invalid, Git delta unavailable,
-    forced rebuild, or cache schema/scanner incompatibility
+    first run, missing/invalid cache, unavailable Git delta,
+    incompatible cache schema/scanner, or forced rebuild
 ```
 
-A cache hit saves scanning work. It does **not** mean the code is correct or verified.
+A cache hit saves work. It does **not** mean the code passed tests.
 
-### Incremental behavior by language
+### Incremental refresh by language
 
-The zero-dependency baseline currently refreshes:
+The zero-dependency baseline currently behaves as follows:
 
-- Python: changed source files only, using the cached/current Python path universe to resolve local imports.
-- JavaScript/TypeScript: changed source files only for relative imports.
-- PHP: the PHP language slice when PHP files or Composer manifests relevant to the slice change.
-- Java/Kotlin: the JVM source slice when JVM files or Maven/Gradle manifests change.
-- Go: the Go slice when Go files or `go.mod` changes.
-- Rust: the Rust slice when Rust files or `Cargo.toml` changes.
+- Python — refresh changed source files only while using the current/cached Python path universe for local import resolution.
+- JavaScript/TypeScript — refresh changed files for relative import/export/require edges.
+- PHP — refresh the PHP slice when PHP files or Composer manifests change.
+- Java/Kotlin — refresh the JVM slice when JVM files or Maven/Gradle manifests change.
+- Go — refresh the Go slice when Go files or `go.mod` changes.
+- Rust — refresh the Rust slice when Rust files or `Cargo.toml` changes.
 
-This keeps the implementation reliable without introducing a database/index service for a personal-project kit.
+This is intentionally simpler than introducing a database/index service for a personal-project kit.
 
-### Current task runtime
+### Bounded relevant context
 
-Regenerated/materialized current-task facts live under:
+Current-task facts are materialized under:
 
 ```text
 .vibe/runtime/
@@ -789,18 +319,22 @@ Regenerated/materialized current-task facts live under:
 └── verification.json
 ```
 
-`relevant-context.json` is deliberately small. By default the first retrieval is capped at:
+`relevant-context.json` is deliberately small.
+
+Default first-pass limits:
 
 - 20 source files,
 - 10 test files,
 - 8 related modules,
 - dependency depth 2.
 
-The agent should read these files first and expand progressively only when a concrete dependency, consumer, contract, or failing test requires more context. The full dependency graph may exist on disk, but it should not be pasted into model context.
+The agent reads this bounded neighborhood first, then expands only when a concrete dependency, consumer, contract, configuration path, or failing test requires more context.
+
+The full dependency graph can exist on disk without being pasted into the model context.
 
 ### Task history is cold storage
 
-Each task may keep an audit record:
+Per-task audit records live under:
 
 ```text
 .vibe/tasks/<task-id>/
@@ -819,7 +353,7 @@ Each task may keep an audit record:
 └── verification.json
 ```
 
-The default is:
+Default policy:
 
 ```json
 {
@@ -830,34 +364,248 @@ The default is:
 }
 ```
 
-The agent must **not** enumerate or read every old task at the start of a new session. Historical tasks are loaded only when the user explicitly refers to one or when current evidence makes a specific old task materially relevant. Current source/tests/config always outrank historical task artifacts.
+A new session must not enumerate and load every old task.
 
-### Why this is token-efficient
+Historical tasks are loaded only when:
 
-Repository scanning and graph maintenance happen in deterministic Python code. The model sees only the bounded relevant neighborhood.
+- the user explicitly refers to a prior task, or
+- current evidence identifies a specific old task as materially relevant.
 
-Conceptually:
+Current source/tests/config outrank historical task artifacts.
+
+### Why this saves tokens
+
+Repository scanning and graph maintenance happen in deterministic Python code.
+
+The model sees only the relevant bounded neighborhood:
 
 ```text
 large repository
       ↓
-persistent local index/cache
+persistent local cache
       ↓
 Git delta
       ↓
 relevant subgraph
       ↓
-<= bounded source/tests
+bounded source/tests
       ↓
 LLM
 ```
 
-A 5,000-file personal project therefore does not imply a 5,000-file model context.
+A 5,000-file repository therefore does not imply a 5,000-file model context.
 
+## Default personal-project configuration
+
+The default v0.4-style configuration is intentionally simple:
+
+```json
+{
+  "version": 3,
+  "architecture": {
+    "profile": "auto",
+    "default_profile": "standard",
+    "module_style": "feature-first",
+    "default_pattern": "modular-layered",
+    "strict_pattern": "hexagonal",
+    "framework_conventions": "prefer",
+    "allow_auto_strict": true,
+    "strict_thresholds": {
+      "source_files": 300,
+      "feature_roots": 20
+    }
+  },
+  "context": {
+    "strategy": "persistent-incremental",
+    "max_dependency_depth": 2,
+    "max_files": 20000,
+    "max_source_files": 20,
+    "max_test_files": 10,
+    "max_related_modules": 8
+  },
+  "index": {
+    "backend": "json",
+    "use_git_delta": true,
+    "full_rebuild_on_schema_change": true
+  },
+  "dependency": {
+    "fail_on_new_cycles": true
+  },
+  "verification": {
+    "require_commands": true,
+    "commands": []
+  },
+  "tasks": {
+    "keep_history": true,
+    "auto_load_history": false
+  }
+}
+```
+
+No SQLite or mandatory symbol database is used by default.
+
+## Core workflow
+
+### Full workflow
+
+```text
+PLAN -> BUILD -> VERIFY
+```
+
+Example:
+
+```text
+Use vibe to add percentage-based trailing stops while preserving old fixed-point configs.
+```
+
+### Plan
+
+The plan skill:
+
+1. Reads `AGENTS.md` and `.vibe/config.json`.
+2. Starts the current task record.
+3. Runs `context` to reuse or incrementally refresh persistent repository context.
+4. Runs `deps` to reuse or incrementally refresh the dependency graph.
+5. Runs `relevant` to build bounded source/test/module context.
+6. Reads only that bounded context first.
+7. Expands context only when evidence requires it.
+8. Runs impact analysis for identified targets.
+9. Produces implementation and verification plans.
+
+### Build
+
+Build:
+
+- reads the current task only,
+- starts with `relevant-context.json`,
+- follows the architecture policy,
+- makes the smallest correct change,
+- adds focused tests,
+- expands context only when justified by evidence.
+
+### Verify
+
+Verify:
+
+- refreshes context/dependencies through the same cache/delta engine,
+- captures dependency state after changes,
+- compares dependency snapshots,
+- detects new cycles,
+- runs configured lint/type/test/build commands,
+- reviews the final diff,
+- records `verification.json`.
+
+A `CACHE_HIT` does not skip verification commands.
+
+## Change modes
+
+### Feature
+
+Focus:
+
+- desired behavior,
+- architecture placement,
+- dependency impact,
+- acceptance criteria,
+- focused tests.
+
+### Change
+
+Focus:
+
+- current behavior,
+- desired behavior,
+- compatibility,
+- affected consumers,
+- schema/config/API migration impact.
+
+### Bug fix
+
+Mandatory sequence:
+
+```text
+REPRODUCE
+-> ROOT CAUSE
+-> FAILING REGRESSION TEST
+-> MINIMAL FIX
+-> PASSING REGRESSION TEST
+-> AFFECTED TESTS
+-> VERIFY
+```
+
+Do not call a bug fixed just because the symptom disappeared manually.
+
+### Refactor
+
+Focus:
+
+- capture baseline behavior,
+- dependency snapshot before,
+- preserve public behavior/contracts,
+- dependency snapshot after,
+- prove behavior did not change.
+
+### Hotfix
+
+Rules:
+
+- minimal scope,
+- no opportunistic cleanup,
+- no dependency upgrades unless required,
+- reproduce when practical,
+- regression test,
+- critical affected verification.
+
+## Testing policy
+
+The kit does not require one direct unit test for every function.
+
+The preferred rule is:
+
+```text
+100% of non-trivial business behavior
+should have meaningful test coverage
+```
+
+Must test when practical:
+
+- public business behavior,
+- calculations,
+- validation rules,
+- important branches,
+- failure/error behavior,
+- bug regressions.
+
+May be covered indirectly:
+
+- private helpers,
+- simple mappings,
+- framework glue,
+- trivial getters/setters,
+- generated code.
+
+Typical strategy:
+
+```text
+business logic
+-> focused unit tests
+
+repository/database boundary
+-> integration tests when useful
+
+API endpoints
+-> request/response integration tests
+
+critical user flows
+-> E2E when justified
+
+bug
+-> mandatory regression test when practical
+```
+
+Tests should assert observable behavior rather than internal call counts or implementation details unless the implementation contract itself matters.
 
 ## Runtime CLI
-
-The installed toolkit exposes:
 
 ```bash
 python .vibe/tools/vibe.py detect
@@ -879,85 +627,78 @@ python .vibe/tools/vibe.py status
 python .vibe/tools/vibe.py rebuild
 ```
 
-The skills call these commands when appropriate. `state` shows whether context/dependencies will be reused or refreshed. `relevant` builds bounded task context without loading the whole repository. `rebuild` intentionally discards the reuse path for that run and performs a full context/dependency rebuild; use it for troubleshooting or after major structural changes.
+Important commands:
+
+- `state` — shows whether persistent context/dependencies will be reused or refreshed.
+- `relevant` — builds bounded task context.
+- `rebuild` — forces full context/dependency reconstruction for troubleshooting or large structural changes.
 
 ## Dependency analysis
 
-The built-in scanner is intentionally dependency-free and acts as a baseline:
+Built-in zero-dependency baseline:
 
-- Python: AST-based local import graph.
-- JavaScript/TypeScript: local relative import/export/require graph.
-- PHP: namespace/use relationships plus literal require/include paths.
-- Java/Kotlin: package/import relationships.
-- Go: local module import relationships.
-- Rust: module declarations and `crate::` use relationships.
-- Generic projects: file/project map when a language-specific graph is unavailable.
+- Python — AST local import graph.
+- JavaScript/TypeScript — relative import/export/require graph.
+- PHP — namespace/use plus literal require/include relationships.
+- Java/Kotlin — package/import relationships.
+- Go — local module import relationships.
+- Rust — module declarations and `crate::` use relationships.
+- Other — project/file map.
 
-Framework context is materialized into `.vibe/runtime/framework-map.json`, while the merged stack adapter is stored in `.vibe/runtime/active-adapter.json`. Their reusable copies live under `.vibe/state/`.
+Framework context is materialized into `.vibe/runtime/framework-map.json`.
 
-The dependency graph is cached across sessions. On unchanged Git state it is reused directly. On ordinary edits it is updated incrementally as described above. Native analyzers remain authoritative when configured.
+The merged language/framework adapter is materialized into `.vibe/runtime/active-adapter.json`.
 
-For larger projects, use stronger native tooling too.
+Reusable copies live under `.vibe/state/`.
 
-### Python recommendation
+### Recommended native tools
 
-Add to your project as appropriate:
+Python:
 
-- Grimp — dependency graph queries.
-- Import Linter — architecture contracts.
-- Ruff — lint/static checks.
-- Pyright or mypy — type checks.
-- pytest — behavior/regression tests.
+- Grimp
+- Import Linter
+- Ruff
+- Pyright or mypy
+- pytest
 
-Then configure those verification commands in `.vibe/config.json`.
+TypeScript/JavaScript:
 
-### TypeScript recommendation
+- dependency-cruiser
+- Nx for monorepos
+- TypeScript compiler
+- ESLint
+- Vitest/Jest/Playwright
 
-Useful additions:
+PHP/Laravel:
 
-- dependency-cruiser — module graph, cycle/rule checks.
-- Nx — project graph and affected analysis for monorepos.
-- TypeScript compiler — semantic/type checking.
-- ESLint — static rules.
-- Vitest/Jest/Playwright — behavioral verification.
+- Deptrac
+- PHPStan/Larastan
+- Pest/PHPUnit
+- Laravel Pint/PHP-CS-Fixer
 
-### PHP / Laravel recommendation
+Java/Spring:
 
-Useful additions:
+- Maven/Gradle dependency tooling
+- ArchUnit
+- jdeps
+- Checkstyle/SpotBugs
 
-- Deptrac — enforce architectural layer rules.
-- PHPStan / Larastan — semantic/static analysis.
-- Pest or PHPUnit — behavior/regression tests.
-- Laravel Pint or PHP-CS-Fixer — style/static hygiene.
+Go:
 
-### Java / Spring recommendation
+- `go list -deps`
+- `go mod graph`
+- `go vet`
+- staticcheck/golangci-lint
+- `go test ./...`
 
-Useful additions:
+Rust:
 
-- Maven/Gradle dependency tooling.
-- ArchUnit — enforce package/module architecture.
-- jdeps — JVM dependency inspection.
-- Checkstyle / SpotBugs — static quality checks.
+- `cargo metadata`
+- `cargo tree`
+- `cargo clippy`
+- `cargo test`
 
-### Go recommendation
-
-Useful additions:
-
-- `go list -deps` and `go mod graph`.
-- `go vet`.
-- staticcheck or golangci-lint.
-- `go test ./...`.
-
-### Rust recommendation
-
-Useful additions:
-
-- `cargo metadata`.
-- `cargo tree`.
-- `cargo clippy`.
-- `cargo test`.
-
-The kit's graph remains useful as a zero-setup baseline; native analyzers remain the authority when configured.
+The built-in graph is a zero-setup baseline. Native analyzers remain authoritative when configured.
 
 ## Dependency snapshots
 
@@ -975,51 +716,197 @@ python .vibe/tools/vibe.py deps
 python .vibe/tools/vibe.py snapshot after
 ```
 
-Then verification produces a dependency diff including:
+The diff includes:
 
-- added edges
-- removed edges
-- newly introduced cycles
-- changed module counts
-
-This makes accidental architectural coupling visible to the agent.
+- added edges,
+- removed edges,
+- new cycles,
+- removed cycles,
+- before/after node counts.
 
 ## Verification semantics
 
-`PASS_VERIFIED` is intentionally strict.
-
-It can only be emitted when:
-
-1. dependency/context commands actually completed,
-2. no newly introduced dependency cycle violates the baseline,
-3. at least one configured verification command actually ran when `require_commands` is true,
-4. every required command exited successfully.
-
-Possible states include:
+Possible statuses:
 
 - `PASS_VERIFIED`
 - `FAIL_VERIFICATION`
 - `NEEDS_VERIFICATION_CONFIG`
 
-This prevents an agent from declaring success based only on its own reading of the code.
+`PASS_VERIFIED` is allowed only when:
 
-## AGENTS.md
+1. deterministic context/dependency work completes,
+2. forbidden new cycles are absent,
+3. required verification commands are configured,
+4. those commands actually run,
+5. every required command succeeds.
 
-Keep `AGENTS.md` short. It is always-on project context.
+A cache hit is never sufficient evidence for `PASS_VERIFIED`.
 
-Recommended content:
+## Repository layout
 
-- architecture invariants
-- coding conventions that really matter
-- commands/source of truth
-- forbidden changes
-- definition of done
+Source repository:
 
-Do not put long task procedures there. Those belong in on-demand skills.
+```text
+my-vibe-kit/
+├── AGENTS.md
+├── CLAUDE.md
+├── README.md
+├── README_vi.md
+├── install.py
+├── vibe.config.example.json
+├── skills/
+│   ├── vibe/SKILL.md
+│   ├── plan/SKILL.md
+│   ├── build/SKILL.md
+│   └── verify/SKILL.md
+├── runtime/
+│   ├── vibe.py
+│   ├── vibe_core.py
+│   ├── vibe_stacks.py
+│   ├── vibe_architecture.py
+│   └── vibe_state.py
+├── adapters/
+│   ├── languages/
+│   └── frameworks/
+├── integrations/
+├── templates/
+└── tests/
+```
 
-## Updating the kit in an existing project
+Installed project:
 
-Pull the latest kit:
+```text
+your-project/
+├── AGENTS.md
+├── CLAUDE.md
+├── .agents/
+│   ├── skills/
+│   ├── rules/
+│   └── workflows/
+├── .claude/
+│   └── skills/
+└── .vibe/
+    ├── config.json
+    ├── adapters/
+    ├── tools/
+    ├── state/       # persistent local cache; ignored
+    ├── runtime/     # current-task materialization; ignored
+    └── tasks/       # cold task history; not auto-loaded
+```
+
+## Requirements
+
+- Python 3.9+
+- Git
+- At least one supported coding agent
+
+The kit runtime itself uses only the Python standard library.
+
+The target project may use any supported language/toolchain.
+
+## Agent compatibility
+
+| Surface | Project skills | Personal/global skills | Notes |
+| --- | --- | --- | --- |
+| Codex desktop / CLI / IDE | `.agents/skills/` | `~/.agents/skills/` | Project install recommended for deterministic runtime |
+| Claude Code | `.claude/skills/` | `~/.claude/skills/` | Native filesystem skill discovery |
+| Claude app / claude.ai | upload ZIP | upload ZIP | Use `python install.py --bundle-claude` |
+| Antigravity IDE | `.agents/skills/` | `~/.gemini/config/skills/` | Project install also adds rules/workflows |
+| Antigravity CLI | `.agents/skills/` | `~/.gemini/antigravity-cli/skills/` | Project scope recommended |
+
+For full deterministic context/dependency/verification, install the kit into each target repository.
+
+## Agent-specific installation
+
+### Codex
+
+Project:
+
+```bash
+python install.py --target /path/to/project --agents codex
+```
+
+Global:
+
+```bash
+python install.py --scope global --agents codex
+```
+
+### Claude Code
+
+Project:
+
+```bash
+python install.py --target /path/to/project --agents claude
+```
+
+Global:
+
+```bash
+python install.py --scope global --agents claude
+```
+
+Create uploadable ZIP bundles for Claude product surfaces:
+
+```bash
+python install.py --bundle-claude
+```
+
+### Google Antigravity
+
+Project:
+
+```bash
+python install.py --target /path/to/project --agents antigravity
+```
+
+Global:
+
+```bash
+python install.py --scope global --agents antigravity
+```
+
+Project install also adds Antigravity rules and slash workflows.
+
+## First-time setup
+
+After installation, inspect:
+
+```text
+.vibe/config.json
+```
+
+The installer detects the stack, seeds architecture/context defaults, and discovers verification commands when it can do so safely.
+
+Examples:
+
+- Node/TypeScript — `lint`, `typecheck`, `test`, `build` package scripts.
+- Python — Ruff, Pyright/mypy, pytest when declared.
+- Django — `python manage.py check` plus Django tests where appropriate.
+- Laravel/PHP — Composer scripts, PHPStan/Larastan, Pest/PHPUnit, `php artisan test`.
+- Java/Spring — Maven/Gradle tests.
+- Go — `go test ./...`.
+- Rust — `cargo check`, `cargo test`.
+
+If no reliable verification command is discovered, configure it manually.
+
+Example:
+
+```json
+{
+  "verification": {
+    "require_commands": true,
+    "commands": [
+      ["python", "-m", "ruff", "check", "."],
+      ["python", "-m", "pytest", "-q"]
+    ]
+  }
+}
+```
+
+## Updating an existing installation
+
+Update the source kit:
 
 ```bash
 cd /path/to/my-vibe-kit
@@ -1038,62 +925,58 @@ Apply managed updates:
 python install.py --target /path/to/project --agents all --force
 ```
 
-`--force` refreshes managed runtime/skills but intentionally preserves an existing project-owned `.vibe/config.json`. If upgrading an older installation to v0.4, compare your config with `vibe.config.example.json` and add the new `context`, `index`, and `tasks.auto_load_history` settings you want. The runtime also supplies safe defaults when those keys are absent.
+`--force` refreshes managed runtime/skills/integration files but intentionally preserves project-owned:
 
-Review the target repository diff before committing.
+- `AGENTS.md`
+- `CLAUDE.md`
+- `.vibe/config.json`
+
+When upgrading an older installation, compare the project config with `vibe.config.example.json`. The runtime supplies safe defaults for missing v3 keys, but explicitly merging the new context/index/task settings is recommended.
 
 ## Safe installation behavior
 
-By default the installer:
+The installer:
 
 - creates missing managed files,
 - leaves unrelated project files untouched,
-- preserves an existing project-owned `AGENTS.md`, `CLAUDE.md`, and `.vibe/config.json`,
-- refuses to overwrite a different kit-managed destination,
-- reports true managed-file conflicts,
-- supports `--dry-run`.
+- preserves existing project-owned instructions/config,
+- reports managed-file conflicts,
+- supports `--dry-run`,
+- only refreshes kit-managed files with `--force`.
 
-`--force` refreshes kit-managed skills/runtime/integration files. It still does **not** overwrite your project-owned instructions or config. Review the target repository diff before committing.
+Review the target repository diff before committing.
 
 ## Suggested daily use
 
-For most tasks, use just one request:
+Most tasks:
 
 ```text
 Use vibe to implement <request>.
 ```
 
-Examples:
-
-```text
-Use vibe to add an export-to-CSV button to the analytics page.
-```
-
-```text
-Use vibe to fix the crash when backtest history is empty.
-```
-
-```text
-Use vibe to refactor the order execution module without behavior changes.
-```
-
-For risky changes, plan first:
+Risky task:
 
 ```text
 Use plan to analyze replacing SQLite with PostgreSQL. Do not edit anything.
 ```
 
-Then review the plan and tell the agent:
+Then:
 
 ```text
 Use build for the current task, then verify it.
 ```
 
+Useful manual inspection:
+
+```bash
+python .vibe/tools/vibe.py state
+python .vibe/tools/vibe.py relevant
+python .vibe/tools/vibe.py status
+```
+
 ## Troubleshooting
 
 ### Agent does not discover a skill
-
-Check the project path:
 
 Codex / Antigravity:
 
@@ -1107,9 +990,9 @@ Claude Code:
 .claude/skills/<skill-name>/SKILL.md
 ```
 
-Restart the agent if it was already running when skills were installed.
+Restart/reopen the agent if skills were added while it was already running.
 
-### Verification says configuration is required
+### Verification requires configuration
 
 Edit:
 
@@ -1117,28 +1000,30 @@ Edit:
 .vibe/config.json
 ```
 
-and add commands that represent your repository's real gates.
+Add commands representing the project's real quality gates.
 
 ### Dependency map misses framework magic
 
-Static import graphs cannot see every dynamic dependency, plugin registry, reflection path, runtime DI binding, generated source, or external service.
+Static graphs cannot see every dynamic import, plugin registry, reflection path, runtime DI binding, generated source, macro, or external service.
 
-Document critical runtime relationships in `AGENTS.md` or architecture docs and configure native analyzers/tests where available.
+Document critical runtime relationships in project instructions/architecture docs and configure native analyzers/tests where appropriate.
 
-### A large repository creates too much context
+### Large repository creates too much context
 
-Run:
+Inspect:
 
 ```bash
 python .vibe/tools/vibe.py state
 python .vibe/tools/vibe.py relevant
 ```
 
-Check the configured limits in `.vibe/config.json`. The default first-pass retrieval is 20 source files, 10 tests, 8 modules, dependency depth 2. Increase these only when the repository genuinely needs a wider neighborhood.
+Default first-pass limits are 20 source files, 10 tests, 8 related modules, dependency depth 2.
+
+Increase limits only when real tasks require a wider neighborhood.
 
 Do not paste `last-dependency.json` or the entire dependency graph into model context.
 
-### Cache looks stale or repository structure changed heavily
+### Cache looks stale or the repository was heavily restructured
 
 Inspect:
 
@@ -1146,17 +1031,25 @@ Inspect:
 python .vibe/tools/vibe.py state
 ```
 
-Then force a deterministic rebuild:
+Then rebuild:
 
 ```bash
 python .vibe/tools/vibe.py rebuild
 ```
 
-A rebuild is also appropriate after a large rename/restructure or when you deliberately want to discard cached state.
+### Why JSON instead of SQLite?
 
-### Why not SQLite?
+The kit is intended primarily for personal projects.
 
-For the intended personal-project use case, v0.4 uses JSON state plus Git delta. It is easier to inspect, delete, debug, and migrate. SQLite/symbol-level indexing should be added only if real projects demonstrate that JSON load time or file-level retrieval has become a bottleneck.
+JSON + Git delta is:
+
+- easy to inspect,
+- easy to delete/rebuild,
+- standard-library-only,
+- easy to debug,
+- sufficient for typical personal repositories.
+
+SQLite or symbol-level indexing should be introduced only when real repositories demonstrate that JSON loading or file-level retrieval is a bottleneck.
 
 ## Philosophy
 
@@ -1165,12 +1058,14 @@ LLM       -> reasoning and implementation
 Scripts   -> deterministic repository facts
 State     -> reusable local cache, never truth by itself
 Tests     -> behavioral truth
-Git       -> history, delta detection, and rollback
+Git       -> history, delta detection, rollback
 Skills    -> reusable workflow
 AGENTS.md -> durable project rules
 ```
 
-The purpose of my-vibe-kit is not to make the agent autonomous at any cost. It is to make personal vibe coding **simple, inspectable, repeatable, and difficult to fake**.
+The goal is not autonomy at any cost.
+
+The goal is personal vibe coding that is **simple, inspectable, repeatable, token-efficient, and difficult to fake**.
 
 ## License
 
