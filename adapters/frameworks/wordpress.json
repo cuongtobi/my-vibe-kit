@@ -1,0 +1,32 @@
+{
+  "id": "wordpress",
+  "kind": "cms",
+  "language": "php",
+  "detect": [
+    "wp-config.php or wp-content marker",
+    "composer dependency johnpbloch/wordpress-core or roots/wordpress"
+  ],
+  "context": [
+    "plugins",
+    "themes",
+    "hooks",
+    "filters",
+    "shortcodes",
+    "rest-routes",
+    "blocks",
+    "templates",
+    "assets"
+  ],
+  "architecture_hints": [
+    "keep theme presentation separate from reusable business behavior",
+    "organize custom plugin code by feature/domain when non-trivial",
+    "treat WordPress hooks, REST routes, shortcodes and database options/meta as public integration contracts",
+    "prefer WordPress APIs over direct core modification"
+  ],
+  "verification": [
+    "composer test/lint/analyse when configured",
+    "phpunit-or-pest when configured",
+    "package lint/test/build for block or theme assets",
+    "wp-cli checks when project-configured"
+  ]
+}
