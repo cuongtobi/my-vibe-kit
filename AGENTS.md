@@ -19,7 +19,7 @@ This repository is the source template for a small cross-agent vibe-coding workf
 3. README usage documentation.
 4. Assumptions.
 
-When behavior changes, update tests and README in the same change.
+When behavior changes, update tests and both documentation variants (`README.md` and `README_vi.md`) in the same change. Keep their feature/config/CLI coverage equivalent; English is the default README and Vietnamese is the full translated companion.
 
 ## Verification
 
