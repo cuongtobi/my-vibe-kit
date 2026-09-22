@@ -71,13 +71,13 @@ def detect_stack(root: Path) -> Dict[str, object]:
     frontend_deps = [
         ('express','express'),
         ('@nestjs/core','nestjs'),
+        ('next','nextjs'),
+        ('nuxt','nuxt'),
+        ('@sveltejs/kit','sveltekit'),
         ('react','react'),
         ('vue','vue'),
-        ('nuxt','nuxt'),
         ('svelte','svelte'),
-        ('@sveltejs/kit','sveltekit'),
         ('vite','vite'),
-        ('next','nextjs'),
     ]
     for dep,name in frontend_deps:
         if dep in pkg:
