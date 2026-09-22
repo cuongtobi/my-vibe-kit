@@ -1,0 +1,14 @@
+{
+  "id": "php",
+  "kind": "language",
+  "extensions": [".php"],
+  "manifests": ["composer.json", "composer.lock"],
+  "dependency": {
+    "baseline": "namespace-use-require-graph",
+    "recommended": ["deptrac", "composer"]
+  },
+  "verification": {
+    "recommended": ["phpstan-or-larastan", "pest-or-phpunit", "php-cs-fixer-or-pint"]
+  },
+  "framework_candidates": ["laravel"]
+}
