@@ -12,7 +12,6 @@ Describe the project in 2-5 sentences. Keep this file durable and concise.
 - Prefer framework conventions over generic architecture ceremony.
 - Dependencies should move from presentation/transport toward application/business/data boundaries, never from lower-level infrastructure back into controllers/UI.
 - Keep cross-feature dependencies on public services/contracts rather than importing another feature's internals.
-- Preserve existing module boundaries unless the task explicitly changes architecture.
 - Do not silently change public APIs, persisted schemas, or external contracts.
 - Prefer existing abstractions and dependencies over introducing parallel ones.
 
@@ -38,7 +37,7 @@ For non-trivial code changes use:
 
 PLAN -> BUILD -> VERIFY
 
-Use the installed vibe/plan/build/verify skills. Dependency and context facts should come from `.vibe/tools/vibe.py` when available.
+Use the installed vibe/plan/build/verify skills. Dependency, context, and architecture-policy facts should come from `.vibe/tools/vibe.py` when available.
 
 ## Definition of done
 
