@@ -1,0 +1,14 @@
+{
+  "id": "javascript",
+  "kind": "language",
+  "extensions": [".js", ".jsx", ".mjs", ".cjs"],
+  "manifests": ["package.json"],
+  "dependency": {
+    "baseline": "relative-import-graph",
+    "recommended": ["dependency-cruiser", "madge"]
+  },
+  "verification": {
+    "recommended": ["eslint", "vitest-or-jest", "playwright-when-relevant"]
+  },
+  "framework_candidates": ["express", "nextjs"]
+}
