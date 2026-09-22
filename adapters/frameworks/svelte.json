@@ -1,0 +1,27 @@
+{
+  "id": "svelte",
+  "kind": "framework",
+  "language": "javascript-or-typescript",
+  "detect": [
+    "package dependency svelte"
+  ],
+  "context": [
+    "components",
+    "stores",
+    "actions",
+    "feature-modules",
+    "api-clients",
+    "tests"
+  ],
+  "architecture_hints": [
+    "keep Svelte components focused on UI behavior",
+    "keep reusable business workflows in feature modules/services",
+    "avoid cross-feature imports through internal component paths"
+  ],
+  "verification": [
+    "package lint",
+    "package typecheck",
+    "package test",
+    "package build"
+  ]
+}
