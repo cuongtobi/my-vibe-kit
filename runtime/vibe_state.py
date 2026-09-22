@@ -68,7 +68,7 @@ def _git(root: Path, *args: str) -> Optional[str]:
         return None
     if proc.returncode != 0:
         return None
-    return proc.stdout.strip()
+    return proc.stdout.rstrip("\r\n")
 
 
 def _normalized(path: str) -> str:
