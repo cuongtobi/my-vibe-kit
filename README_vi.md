@@ -98,8 +98,8 @@ Workflow độc lập ngôn ngữ. Runtime có stack adapter và dependency scan
 | Ngôn ngữ | Dependency scan baseline | Framework adapter |
 | --- | --- | --- |
 | Python | AST import graph | Flask, FastAPI, Django |
-| JavaScript | relative + alias tsconfig/jsconfig + local workspace import graph | Express, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
-| TypeScript | relative + alias tsconfig/jsconfig + local workspace import graph | Express, NestJS, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
+| JavaScript | relative + alias tsconfig/jsconfig + local npm/yarn/pnpm workspace import graph | Express, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
+| TypeScript | relative + alias tsconfig/jsconfig + local npm/yarn/pnpm workspace import graph | Express, NestJS, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
 | PHP | namespace/use + literal require/include graph | Laravel, WordPress |
 | Java/Kotlin | package/import graph | Spring |
 | Go | module-local import graph | Gin, Fiber |
@@ -708,7 +708,7 @@ Verification summary có trường `dependency_comparison_available`; khi là fa
 Baseline built-in không yêu cầu dependency ngoài:
 
 - Python — AST local import graph.
-- JavaScript/TypeScript — relative import cộng alias path `tsconfig`/`jsconfig`, alias source `@/` có thể xác định tĩnh và local workspace package import/export.
+- JavaScript/TypeScript — relative import cộng alias path `tsconfig`/`jsconfig`, alias source `@/` có thể xác định tĩnh và local npm/yarn/pnpm workspace package import/export.
 - PHP — namespace/use cộng literal require/include.
 - Java/Kotlin — package/import relationship.
 - Go — local module import relationship.
