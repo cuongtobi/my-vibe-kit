@@ -1,0 +1,14 @@
+{
+  "id": "go",
+  "kind": "language",
+  "extensions": [".go"],
+  "manifests": ["go.mod", "go.sum"],
+  "dependency": {
+    "baseline": "module-import-graph",
+    "recommended": ["go-list-deps", "go-mod-graph"]
+  },
+  "verification": {
+    "recommended": ["go-test", "go-vet", "staticcheck-or-golangci-lint"]
+  },
+  "framework_candidates": ["gin", "fiber"]
+}
