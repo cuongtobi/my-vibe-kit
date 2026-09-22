@@ -610,6 +610,7 @@ def project_context(root: Path, force: bool = False) -> Dict[str, object]:
         },
         "active_adapter": {
             "primary": (adapter.get("primary_language") or adapter.get("language") or {}).get("id"),
+            "language": (adapter.get("primary_language") or adapter.get("language") or {}).get("id"),
             "languages": [
                 item.get("id") for item in (adapter.get("languages") or [])
                 if isinstance(item, dict)
