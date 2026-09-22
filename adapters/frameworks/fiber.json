@@ -1,0 +1,9 @@
+{
+  "id": "fiber",
+  "kind": "framework",
+  "language": "go",
+  "detect": ["go module github.com/gofiber/fiber"],
+  "context": ["routes", "groups", "middleware", "handlers"],
+  "architecture_hints": ["track middleware registration order", "keep framework context out of core domain code"],
+  "verification": ["go test ./...", "go vet ./...", "staticcheck-or-golangci-lint"]
+}
