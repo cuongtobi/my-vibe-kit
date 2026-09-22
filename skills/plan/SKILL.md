@@ -29,6 +29,8 @@ Understand the smallest safe change before implementation.
 
    ```bash
    python .vibe/tools/vibe.py context
+   python .vibe/tools/vibe.py adapter
+   python .vibe/tools/vibe.py framework
    python .vibe/tools/vibe.py deps
    python .vibe/tools/vibe.py snapshot before
    ```
@@ -40,6 +42,8 @@ Understand the smallest safe change before implementation.
    - reverse dependencies / consumers,
    - bounded transitive impact,
    - related configuration/data/schema/API contracts,
+   - framework routes/components affected by the target,
+   - active language/framework adapter guidance,
    - related tests,
    - project commands that can verify the change.
 6. Run impact analysis:
