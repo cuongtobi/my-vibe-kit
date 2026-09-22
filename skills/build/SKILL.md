@@ -12,10 +12,11 @@ Implement the approved plan with the smallest correct diff.
 ## Before editing
 
 1. Read `AGENTS.md`.
-2. Read the current task plan and impact data when present under `.vibe/tasks/` or `.vibe/runtime/`.
-3. Read `.vibe/runtime/architecture-policy.json` when present.
-4. Confirm the target scope and constraints.
-5. If new evidence changes the scope materially, update impact analysis before editing outside the plan.
+2. Read `.vibe/runtime/current-task.json` and only that task's plan/impact artifacts when present. Do not scan historical task folders.
+3. Read `.vibe/runtime/relevant-context.json` and use it as the initial bounded source/test scope.
+4. Read `.vibe/runtime/architecture-policy.json` when present.
+5. Confirm the target scope and constraints.
+6. If new evidence changes the scope materially, update impact analysis before editing outside the plan.
 
 ## Architecture and clean-code rules
 
@@ -38,6 +39,8 @@ For greenfield/new modules, follow the effective architecture policy:
 - Do not silently modify public APIs, persisted schemas, wire formats, permissions, or configuration compatibility.
 - Avoid unrelated formatting/refactors.
 - Keep changes reviewable.
+- Expand beyond the bounded relevant-context file set only when a concrete dependency, consumer, failing test, or contract requires it.
+- Never read all historical `.vibe/tasks/` as background context.
 
 ## Mode behavior
 
