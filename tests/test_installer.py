@@ -64,6 +64,27 @@ class InstallerTests(unittest.TestCase):
             self.assertIn(["npm", "run", "lint"], config["verification"]["commands"])
             self.assertIn(["npm", "run", "test"], config["verification"]["commands"])
 
+    def test_laravel_install_detects_stack_and_verification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "laravel-app"
+            target.mkdir()
+            (target / "composer.json").write_text(
+                json.dumps({"require": {"laravel/framework": "^12.0"}}),
+                encoding="utf-8",
+            )
+            (target / "artisan").write_text("", encoding="utf-8")
+
+            result = self.run_installer(target)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            config = json.loads(
+                (target / ".vibe/config.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(config["stack"]["primary"], "php")
+            self.assertIn("laravel", config["stack"]["frameworks"])
+            self.assertIn(["php", "artisan", "test"], config["verification"]["commands"])
+            self.assertTrue((target / ".vibe/adapters/languages/php.json").exists())
+            self.assertTrue((target / ".vibe/adapters/frameworks/laravel.json").exists())
+
     def test_existing_project_instructions_are_preserved_even_with_force(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "project"
