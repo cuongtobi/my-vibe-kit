@@ -811,9 +811,15 @@ def verify(root: Path) -> Dict[str, object]:
     else:
         status = "PASS_VERIFIED"
 
+    architecture = json_load(runtime_dir(root) / "architecture-policy.json", {})
     data = {
         "generated_at": utc_now(),
         "status": status,
+        "architecture": {
+            "profile": architecture.get("effective_profile") if isinstance(architecture, dict) else None,
+            "pattern": architecture.get("pattern") if isinstance(architecture, dict) else None,
+            "module_style": architecture.get("module_style") if isinstance(architecture, dict) else None,
+        },
         "require_commands": require_commands,
         "commands_configured": len(commands),
         "commands_run": len(results),
@@ -835,6 +841,7 @@ def status(root: Path) -> Dict[str, object]:
         "stack": detect_stack(root),
         "runtime": {
             "project_map": (runtime_dir(root) / "project-map.json").exists(),
+            "architecture_policy": (runtime_dir(root) / "architecture-policy.json").exists(),
             "dependency_map": (runtime_dir(root) / "dependency-map.json").exists(),
             "impact": (runtime_dir(root) / "impact.json").exists(),
             "verification": (runtime_dir(root) / "verification.json").exists(),
