@@ -1,0 +1,27 @@
+{
+  "id": "sveltekit",
+  "kind": "framework",
+  "language": "javascript-or-typescript",
+  "detect": [
+    "package dependency @sveltejs/kit"
+  ],
+  "context": [
+    "routes",
+    "load-functions",
+    "server-actions",
+    "hooks",
+    "components",
+    "server-client-boundaries"
+  ],
+  "architecture_hints": [
+    "respect SvelteKit route and server/client boundaries",
+    "keep business logic out of +page/+server transport files",
+    "treat form actions and endpoint contracts as public behavior"
+  ],
+  "verification": [
+    "package lint",
+    "package typecheck",
+    "package test",
+    "package build"
+  ]
+}
