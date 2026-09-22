@@ -1,0 +1,9 @@
+{
+  "id": "django",
+  "kind": "framework",
+  "language": "python",
+  "detect": ["python dependency django", "manage.py"],
+  "context": ["urls", "apps", "models", "views", "middleware", "migrations"],
+  "architecture_hints": ["treat migrations and model schema as public persistence contracts", "check signal and middleware side effects"],
+  "verification": ["python manage.py check", "python manage.py test", "pytest-when-configured"]
+}
