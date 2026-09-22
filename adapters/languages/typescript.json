@@ -1,0 +1,14 @@
+{
+  "id": "typescript",
+  "kind": "language",
+  "extensions": [".ts", ".tsx"],
+  "manifests": ["package.json", "tsconfig.json"],
+  "dependency": {
+    "baseline": "relative-import-graph",
+    "recommended": ["dependency-cruiser", "nx-for-monorepos"]
+  },
+  "verification": {
+    "recommended": ["tsc", "eslint", "vitest-or-jest", "playwright-when-relevant"]
+  },
+  "framework_candidates": ["express", "nestjs", "nextjs"]
+}
