@@ -16,6 +16,7 @@ Produce evidence that the change satisfies the request without introducing unexp
 
    ```bash
    python .vibe/tools/vibe.py context
+   python .vibe/tools/vibe.py architecture
    python .vibe/tools/vibe.py deps
    python .vibe/tools/vibe.py snapshot after
    ```
@@ -31,18 +32,25 @@ Produce evidence that the change satisfies the request without introducing unexp
    python .vibe/tools/vibe.py verify
    ```
 
-5. Inspect the final `git diff` semantically:
+5. Review the diff against the effective architecture policy:
+   - new code remains feature-first where practical,
+   - standard projects do not introduce unnecessary Clean/Hexagonal ceremony,
+   - strict projects keep framework/infrastructure dependencies at the edges,
+   - controllers/routes/handlers stay thin,
+   - new abstractions are justified rather than speculative,
+   - modules remain cohesive and avoid new circular coupling.
+6. Inspect the final `git diff` semantically:
    - requested behavior is present,
    - no unrelated change,
    - no accidental public contract change,
    - error/edge states are handled,
    - tests genuinely exercise the changed behavior.
-6. For bug fixes, verify:
+7. For bug fixes, verify:
    - original reproduction no longer fails,
    - regression test passes,
    - nearby behavior still passes.
-7. For refactors, verify baseline behavior still passes.
-8. Report the runtime status exactly.
+8. For refactors, verify baseline behavior still passes.
+9. Report the runtime status exactly.
 
 ## Status rules
 
