@@ -95,6 +95,105 @@ plan / impact / build / verify
 
 This means the four core skills do not need separate Laravel/Flask/Express variants.
 
+## Architecture policy for new projects
+
+For greenfield projects, the kit now has an explicit architecture policy instead of letting each agent invent a different structure.
+
+Default behavior:
+
+```text
+feature-first
++
+modular layered architecture
++
+framework-native conventions
++
+clean-code rules
+```
+
+The default effective profile is `standard`. It uses framework conventions first and keeps architecture lightweight:
+
+```text
+presentation / route / controller
+            ↓
+application / service
+            ↓
+domain / business rules
+            ↓
+repository / data / infrastructure boundary
+```
+
+This is guidance, not a reason to create every layer for every feature. Repositories, interfaces, ports, wrappers, and extra abstractions are added only when a real boundary, variation, reuse, or testing need exists.
+
+The kit switches to a Clean/Hexagonal-style inward dependency policy only when:
+
+- you explicitly set `architecture.profile` to `strict`, or
+- `profile=auto` and the project crosses the configured strict thresholds.
+
+Default thresholds:
+
+```json
+{
+  "architecture": {
+    "profile": "auto",
+    "default_profile": "standard",
+    "module_style": "feature-first",
+    "default_pattern": "modular-layered",
+    "strict_pattern": "hexagonal",
+    "framework_conventions": "prefer",
+    "allow_auto_strict": true,
+    "strict_thresholds": {
+      "source_files": 300,
+      "feature_roots": 20
+    }
+  }
+}
+```
+
+To force strict mode:
+
+```json
+{
+  "architecture": {
+    "profile": "strict"
+  }
+}
+```
+
+Strict mode uses the dependency direction:
+
+```text
+presentation
+    ↓
+application / use-cases
+    ↓
+domain
+    ↑
+ports
+    ↑
+infrastructure adapters
+```
+
+Framework-specific guidance is still preserved. For example, Laravel remains Laravel-native, NestJS remains module/provider-based, Django remains app-oriented, and Spring prefers package-by-feature. Strict mode changes dependency boundaries; it does not discard the framework's normal conventions.
+
+The runtime writes the resolved decision to:
+
+```text
+.vibe/runtime/architecture-policy.json
+```
+
+That file contains:
+
+- requested/effective profile,
+- selected pattern,
+- project-size signals,
+- auto-strict decision reason,
+- recommended framework-native structure,
+- dependency-direction rules,
+- Clean Code rules.
+
+Core Clean Code defaults include intent-revealing naming, focused functions/modules, low nesting, thin transport handlers, explicit errors/dependencies, no hidden mutable global state, no speculative abstraction, behavior-focused tests, and simple code over clever code.
+
 ## How it works
 
 ```text
@@ -143,7 +242,8 @@ my-vibe-kit/
 ├── runtime/
 │   ├── vibe.py
 │   ├── vibe_core.py
-│   └── vibe_stacks.py
+│   ├── vibe_stacks.py
+│   └── vibe_architecture.py
 ├── adapters/
 │   ├── languages/
 │   │   ├── python.json
@@ -202,7 +302,8 @@ your-project/
     ├── tools/
     │   ├── vibe.py
     │   ├── vibe_core.py
-    │   └── vibe_stacks.py
+    │   ├── vibe_stacks.py
+    │   └── vibe_architecture.py
     ├── runtime/            # regenerated; ignored by .vibe/.gitignore
     └── tasks/              # task records; keep or archive as you prefer
 ```
@@ -395,7 +496,7 @@ After installing, open:
 .vibe/config.json
 ```
 
-The installer detects the repository language/framework stack and seeds verification commands when it can do so safely. It also copies the language/framework adapter catalog into `.vibe/adapters/`.
+The installer detects the repository language/framework stack, seeds the architecture policy, and discovers verification commands when it can do so safely. It also copies the language/framework adapter catalog into `.vibe/adapters/`.
 
 Examples of automatically discovered gates include:
 
@@ -438,6 +539,8 @@ For Python, the installer looks for common local tooling and project configurati
 
 If no reliable verification command can be determined, the kit does **not** pretend the project is verified. `verify` reports that configuration is required instead of emitting `PASS_VERIFIED`.
 
+For a new project, normally leave `architecture.profile` as `auto`. The resulting profile is `standard` until the project crosses the configured size thresholds. Use `strict` manually for systems where you intentionally want Clean/Hexagonal boundaries from the start.
+
 ## Core workflow
 
 ### 1. Full vibe workflow
@@ -467,10 +570,11 @@ The plan skill:
 1. Reads `AGENTS.md` and relevant repository instructions.
 2. Starts/updates a task record.
 3. Runs stack/context scan.
-4. Runs dependency scan.
-5. Finds reverse dependencies and likely tests.
-6. Writes impact analysis.
-7. Produces an implementation plan.
+4. Resolves language/framework adapters and architecture policy.
+5. Runs dependency scan.
+6. Finds reverse dependencies, framework routes/components, and likely tests.
+7. Writes impact analysis.
+8. Produces an implementation plan.
 
 ### 3. Build from an existing plan
 
@@ -593,6 +697,7 @@ Regenerated under:
 ├── project-map.json
 ├── framework-map.json
 ├── active-adapter.json
+├── architecture-policy.json
 ├── dependency-map.json
 ├── impact.json
 ├── dependency-diff.json
@@ -632,6 +737,7 @@ python .vibe/tools/vibe.py task start --mode bug_fix --request "stop-loss gap fi
 python .vibe/tools/vibe.py context
 python .vibe/tools/vibe.py adapter
 python .vibe/tools/vibe.py framework
+python .vibe/tools/vibe.py architecture
 python .vibe/tools/vibe.py deps
 python .vibe/tools/vibe.py impact
 python .vibe/tools/vibe.py snapshot before
