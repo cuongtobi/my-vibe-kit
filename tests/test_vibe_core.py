@@ -509,8 +509,9 @@ class VibeCoreTests(unittest.TestCase):
     def test_js_dependency_graph_resolves_paths_and_workspace_exports(self):
         temp, root = self.make_repo()
         self.addCleanup(temp.cleanup)
-        (root / "package.json").write_text(
-            json.dumps({"workspaces": ["packages/*"]}),
+        (root / "package.json").write_text("{}", encoding="utf-8")
+        (root / "pnpm-workspace.yaml").write_text(
+            "packages:\n  - 'packages/*'\n",
             encoding="utf-8",
         )
         (root / "tsconfig.json").write_text(
