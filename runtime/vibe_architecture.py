@@ -1,0 +1,276 @@
+"""Architecture policy for greenfield and evolving projects.
+
+Default:
+- feature-first
+- modular layered
+- framework-native conventions
+- clean-code rules
+
+Strict projects switch to a Clean/Hexagonal shape only when explicitly requested
+or when deterministic size thresholds are crossed.
+"""
+
+import json
+import os
+from pathlib import Path
+from typing import Dict, List, Optional
+
+from vibe_stacks import IGNORE_DIRS, detect_stack
+
+SOURCE_EXTENSIONS = {
+    ".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+    ".php", ".java", ".kt", ".kts", ".go", ".rs", ".cs", ".rb",
+}
+
+CLEAN_CODE_RULES = [
+    "Use intent-revealing names; avoid vague names such as data, temp, helper, manager unless the role is genuinely generic.",
+    "Keep functions focused on one main responsibility; extract only when it improves clarity or reuse.",
+    "Prefer guard clauses/early returns when they reduce nesting and improve readability.",
+    "Keep transport/UI handlers thin; place non-trivial business behavior in application/domain code.",
+    "Do not hide failures: preserve error context and never silently swallow exceptions.",
+    "Avoid hidden global mutable state; make important dependencies explicit.",
+    "Reuse existing abstractions before creating new ones; avoid speculative interfaces and premature generalization.",
+    "Keep modules cohesive and boundaries explicit; avoid god services/modules and circular dependencies.",
+    "Keep configuration and secrets outside business logic; never hardcode secrets.",
+    "Test observable behavior and important edge cases rather than coupling tests to implementation details.",
+    "Comments should explain why, constraints, or non-obvious tradeoffs rather than narrating obvious code.",
+    "Prefer simple code over clever code; optimize only with evidence.",
+]
+
+STANDARD_DEPENDENCY_RULES = [
+    "Presentation/transport may depend on application services.",
+    "Application services may orchestrate domain behavior and repository/port abstractions.",
+    "Domain/business rules should not depend on controllers, routes, views, or UI concerns.",
+    "Infrastructure/data access should not depend on presentation/transport code.",
+    "Cross-feature access should prefer a public service/contract over importing another feature's internals.",
+]
+
+STRICT_DEPENDENCY_RULES = [
+    "Domain is framework-independent and depends on no infrastructure or transport layer.",
+    "Application/use-cases depend on domain and ports, not concrete infrastructure.",
+    "Infrastructure implements ports owned by application/domain boundaries.",
+    "Presentation depends inward on application/use-cases.",
+    "Dependencies point inward; framework-specific code stays at the edges.",
+]
+
+FRAMEWORK_GUIDANCE = {
+    "flask": {
+        "standard": ["feature package", "blueprint/router", "service/application", "repository/data adapter when needed", "tests"],
+        "strict": ["feature package", "presentation blueprint", "application use-cases + ports", "domain", "infrastructure adapters", "tests"],
+        "notes": ["Keep Flask globals/request objects out of core business logic.", "Use repositories only when data-access complexity justifies them."],
+    },
+    "fastapi": {
+        "standard": ["feature package", "router", "service/application", "repository/data adapter", "schemas", "tests"],
+        "strict": ["feature package", "presentation router + transport schemas", "application use-cases + ports", "domain", "infrastructure adapters", "tests"],
+        "notes": ["Keep Pydantic transport schemas separate from complex domain behavior.", "Treat Depends-based wiring as edge composition."],
+    },
+    "django": {
+        "standard": ["Django app per feature", "urls/views", "service/application for non-trivial workflows", "models/data access", "tests"],
+        "strict": ["Django app/feature", "presentation urls/views", "application use-cases + ports", "domain", "Django ORM/infrastructure adapters", "tests"],
+        "notes": ["Follow Django app conventions first.", "Do not add repository wrappers around trivial ORM access without a reason."],
+    },
+    "express": {
+        "standard": ["feature module", "routes", "controller", "service/application", "repository/data adapter when needed", "tests"],
+        "strict": ["feature module", "presentation routes/controllers", "application use-cases + ports", "domain", "infrastructure adapters", "tests"],
+        "notes": ["Keep middleware/order explicit.", "Do not put business logic in route handlers."],
+    },
+    "nestjs": {
+        "standard": ["feature module", "controller", "service", "providers/repository", "dto", "tests"],
+        "strict": ["feature module", "presentation controller", "application use-cases + ports", "domain", "Nest/infrastructure providers", "tests"],
+        "notes": ["Keep Nest module/provider conventions.", "Use DI tokens/ports at real boundaries, not for every class."],
+    },
+    "nextjs": {
+        "standard": ["route/page shell", "feature module", "application/service logic", "data/client adapters", "components", "tests"],
+        "strict": ["route/page shell", "feature presentation", "application use-cases + ports", "domain where business-heavy", "server/client infrastructure adapters", "tests"],
+        "notes": ["Respect server/client component boundaries.", "Keep reusable business behavior out of page components."],
+    },
+    "laravel": {
+        "standard": ["framework routes", "controllers/requests", "feature/service/application", "models or repositories when justified", "policies/jobs/events", "tests"],
+        "strict": ["framework routes/controllers", "application use-cases + ports", "domain", "Laravel infrastructure adapters", "policies/jobs/events", "tests"],
+        "notes": ["Follow Laravel conventions before generic Clean Architecture conventions.", "Do not create a repository for every Eloquent model by default."],
+    },
+    "spring": {
+        "standard": ["package-by-feature", "controller", "service/application", "repository", "domain", "tests"],
+        "strict": ["package-by-feature", "presentation controller", "application use-cases + ports", "domain", "Spring infrastructure adapters", "tests"],
+        "notes": ["Prefer package-by-feature over one global package per layer.", "Use interfaces where they define meaningful boundaries."],
+    },
+    "gin": {
+        "standard": ["feature/package", "handler/router", "service/application", "repository/data adapter", "tests"],
+        "strict": ["feature/package", "presentation handler", "application use-cases + ports", "domain", "infrastructure adapters", "tests"],
+        "notes": ["Keep gin.Context at the transport boundary."],
+    },
+    "fiber": {
+        "standard": ["feature/package", "handler/router", "service/application", "repository/data adapter", "tests"],
+        "strict": ["feature/package", "presentation handler", "application use-cases + ports", "domain", "infrastructure adapters", "tests"],
+        "notes": ["Keep Fiber context at the transport boundary."],
+    },
+    "actix-web": {
+        "standard": ["feature/module", "handler", "service/application", "repository/data adapter", "domain types", "tests"],
+        "strict": ["feature/module", "presentation handler", "application use-cases + traits/ports", "domain", "infrastructure adapters", "tests"],
+        "notes": ["Keep Actix extractors/state at the edge when business logic can remain framework-independent."],
+    },
+}
+
+LANGUAGE_FALLBACK = {
+    "python": ["feature package", "entrypoint/router", "service/application", "repository/data adapter when needed", "tests"],
+    "javascript": ["feature module", "entrypoint/controller", "service/application", "data adapter when needed", "tests"],
+    "typescript": ["feature module", "entrypoint/controller", "service/application", "data adapter when needed", "types/contracts", "tests"],
+    "php": ["feature/module", "controller/entrypoint", "service/application", "model/repository when needed", "tests"],
+    "java": ["package-by-feature", "controller/entrypoint", "service/application", "repository", "domain", "tests"],
+    "go": ["feature/package", "handler/entrypoint", "service/application", "repository/data adapter", "tests"],
+    "rust": ["feature/module", "handler/entrypoint", "service/application", "repository/adapter", "domain types", "tests"],
+    "generic": ["feature/module", "entrypoint", "application/service", "data/infrastructure when needed", "tests"],
+}
+
+
+def _read_config(root: Path) -> Dict[str, object]:
+    path = root / ".vibe" / "config.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _source_stats(root: Path) -> Dict[str, int]:
+    count = 0
+    feature_dirs = set()
+    for current, dirs, files in os.walk(str(root)):
+        current_path = Path(current)
+        dirs[:] = [name for name in dirs if name not in IGNORE_DIRS]
+        for name in files:
+            path = current_path / name
+            if path.suffix.lower() not in SOURCE_EXTENSIONS:
+                continue
+            count += 1
+            try:
+                rel = path.relative_to(root)
+            except ValueError:
+                continue
+            parts = rel.parts
+            # Rough complexity signal: first meaningful directory below src/app/lib.
+            if len(parts) >= 2:
+                if parts[0] in ("src", "app", "lib", "internal", "packages", "apps") and len(parts) >= 3:
+                    feature_dirs.add("/".join(parts[:2]))
+                else:
+                    feature_dirs.add(parts[0])
+    return {"source_files": count, "feature_roots": len(feature_dirs)}
+
+
+def default_architecture_config() -> Dict[str, object]:
+    return {
+        "profile": "auto",
+        "default_profile": "standard",
+        "module_style": "feature-first",
+        "default_pattern": "modular-layered",
+        "strict_pattern": "hexagonal",
+        "framework_conventions": "prefer",
+        "allow_auto_strict": True,
+        "strict_thresholds": {
+            "source_files": 300,
+            "feature_roots": 20,
+        },
+    }
+
+
+def architecture_policy(root: Path, config: Optional[Dict[str, object]] = None) -> Dict[str, object]:
+    stack = detect_stack(root)
+    full_config = config if isinstance(config, dict) else _read_config(root)
+    architecture = dict(default_architecture_config())
+    user_arch = full_config.get("architecture") if isinstance(full_config, dict) else None
+    if isinstance(user_arch, dict):
+        for key, value in user_arch.items():
+            if key == "strict_thresholds" and isinstance(value, dict):
+                merged = dict(architecture["strict_thresholds"])
+                merged.update(value)
+                architecture[key] = merged
+            else:
+                architecture[key] = value
+
+    requested = str(architecture.get("profile", "auto"))
+    if requested not in {"auto", "simple", "standard", "strict"}:
+        requested = "auto"
+
+    stats = _source_stats(root)
+    thresholds = architecture.get("strict_thresholds") or {}
+    auto_strict = bool(architecture.get("allow_auto_strict", True)) and (
+        stats["source_files"] >= int(thresholds.get("source_files", 300))
+        or stats["feature_roots"] >= int(thresholds.get("feature_roots", 20))
+    )
+
+    if requested == "auto":
+        effective = "strict" if auto_strict else str(architecture.get("default_profile", "standard"))
+    else:
+        effective = requested
+    if effective not in {"simple", "standard", "strict"}:
+        effective = "standard"
+
+    if effective == "strict":
+        pattern = str(architecture.get("strict_pattern", "hexagonal"))
+    elif effective == "simple":
+        pattern = "framework-native-simple"
+    else:
+        pattern = str(architecture.get("default_pattern", "modular-layered"))
+
+    frameworks = list(stack.get("frameworks") or [])
+    primary = str(stack.get("primary", "generic"))
+    framework_details = []
+    for framework in frameworks:
+        guide = FRAMEWORK_GUIDANCE.get(framework)
+        if guide:
+            framework_details.append({
+                "framework": framework,
+                "structure": guide["strict" if effective == "strict" else "standard"],
+                "notes": guide.get("notes", []),
+            })
+
+    if framework_details:
+        recommended_structure = framework_details[0]["structure"]
+    else:
+        recommended_structure = LANGUAGE_FALLBACK.get(primary, LANGUAGE_FALLBACK["generic"])
+
+    if effective == "simple":
+        recommended_structure = [
+            item for item in recommended_structure
+            if "repository" not in item.lower() and "port" not in item.lower()
+        ]
+
+    decision_reasons: List[str] = []
+    if requested == "strict":
+        decision_reasons.append("Strict profile explicitly configured.")
+    elif requested == "simple":
+        decision_reasons.append("Simple profile explicitly configured.")
+    elif requested == "standard":
+        decision_reasons.append("Standard profile explicitly configured.")
+    elif auto_strict:
+        decision_reasons.append(
+            "Auto profile promoted to strict because project size crossed configured thresholds."
+        )
+    else:
+        decision_reasons.append(
+            "Auto profile uses standard by default; project size has not crossed strict thresholds."
+        )
+
+    return {
+        "requested_profile": requested,
+        "effective_profile": effective,
+        "pattern": pattern,
+        "module_style": "feature-first",
+        "framework_conventions": str(architecture.get("framework_conventions", "prefer")),
+        "stack": stack,
+        "project_size": stats,
+        "strict_thresholds": thresholds,
+        "auto_strict_triggered": auto_strict,
+        "decision_reasons": decision_reasons,
+        "recommended_structure": recommended_structure,
+        "framework_guidance": framework_details,
+        "dependency_rules": STRICT_DEPENDENCY_RULES if effective == "strict" else STANDARD_DEPENDENCY_RULES,
+        "clean_code_rules": CLEAN_CODE_RULES,
+        "principles": [
+            "Framework conventions first.",
+            "Feature-first organization by default.",
+            "Modular layered architecture for standard projects.",
+            "Use Clean/Hexagonal boundaries only for strict projects or when complexity justifies them.",
+            "Abstraction only when justified by a real boundary, variation, reuse, or test seam.",
+        ],
+    }
