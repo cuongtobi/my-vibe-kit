@@ -2,8 +2,29 @@
   "id": "nextjs",
   "kind": "framework",
   "language": "javascript-or-typescript",
-  "detect": ["package dependency next"],
-  "context": ["app-router-or-pages-router", "route-handlers", "server-client-boundaries"],
-  "architecture_hints": ["track server/client component boundaries", "treat file-system routes as public navigation/API contracts"],
-  "verification": ["package lint", "package typecheck", "package test", "package build"]
+  "detect": [
+    "package dependency next"
+  ],
+  "context": [
+    "app-router-or-pages-router",
+    "server-components",
+    "client-components",
+    "route-handlers",
+    "layouts",
+    "server-actions",
+    "server-client-boundaries"
+  ],
+  "architecture_hints": [
+    "respect App Router/Pages Router conventions",
+    "track server/client component boundaries",
+    "keep reusable business behavior out of page/layout components",
+    "treat file-system routes, route handlers and server actions as public navigation/API contracts"
+  ],
+  "verification": [
+    "package lint",
+    "package typecheck",
+    "package test",
+    "package build",
+    "playwright-or-cypress-when-configured"
+  ]
 }
