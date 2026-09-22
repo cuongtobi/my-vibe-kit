@@ -653,6 +653,11 @@ def scan_python_dependencies(root: Path, files: Sequence[Path]) -> Tuple[Set[str
 def resolve_js_target(source: Path, spec: str, root: Path) -> Optional[str]:
     if not spec.startswith("."):
         return None
+    # Resolve both sides against their canonical filesystem paths. On Windows,
+    # temporary/workspace roots may be exposed through short-name or junction
+    # aliases, so resolving only the candidate can make relative_to(root) fail
+    # even when both paths refer to the same repository.
+    resolved_root = root.resolve()
     base = (source.parent / spec).resolve()
     candidates = []
     if base.suffix:
@@ -664,12 +669,13 @@ def resolve_js_target(source: Path, spec: str, root: Path) -> Optional[str]:
             candidates.append(base / ("index" + ext))
 
     for candidate in candidates:
+        if not candidate.exists() or not candidate.is_file():
+            continue
         try:
-            rel = candidate.relative_to(root)
+            rel = candidate.resolve().relative_to(resolved_root)
         except ValueError:
             continue
-        if candidate.exists() and candidate.is_file():
-            return rel.as_posix()
+        return rel.as_posix()
     return None
 
 
