@@ -1802,10 +1802,10 @@ def verify(root: Path) -> Dict[str, object]:
 
     # Commands may format or generate source; compare dependencies of the final tree.
     if task_path and (task_path / "dependency-before.json").exists():
-        snapshot_dependencies(root, "after")
+        final_graph = snapshot_dependencies(root, "after")
         dep_diff = dependency_diff(root)
     else:
-        dependency_graph(root)
+        final_graph = dependency_graph(root)
     final_fingerprint = verification_fingerprint(root)
     inputs_changed = inputs_changed or final_fingerprint != last_fingerprint
 
@@ -1843,6 +1843,7 @@ def verify(root: Path) -> Dict[str, object]:
         "commands_run": len(results),
         "command_results": results,
         "dependency_diff": dep_diff,
+        "dependency_authority": final_graph.get("authority") if isinstance(final_graph, dict) else None,
         "new_cycles": new_cycles,
         "git_status": (git(root, "status", "--short") or "").splitlines(),
         "git_diff_stat": git(root, "diff", "--stat"),
