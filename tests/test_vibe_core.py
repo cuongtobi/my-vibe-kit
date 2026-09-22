@@ -680,6 +680,7 @@ class VibeCoreTests(unittest.TestCase):
         self.assertEqual(report["command_results"][0]["returncode"], 0)
         self.assertEqual(report["architecture"]["profile"], "standard")
         self.assertEqual(report["architecture"]["pattern"], "modular-layered")
+        self.assertEqual(report["dependency_authority"]["level"], "advisory")
 
     def test_verify_cli_requires_evidence_even_when_commands_are_optional(self):
         temp, root = self.make_repo()
