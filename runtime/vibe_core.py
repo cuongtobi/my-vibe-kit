@@ -1074,7 +1074,7 @@ def _dependency_payload(
     if ".py" in suffixes:
         scanners.append("python-ast")
     if suffixes & {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
-        scanners.append("javascript-typescript-relative-imports")
+        scanners.append("javascript-typescript-static-imports")
     if ".php" in suffixes:
         scanners.append("php-static")
     if suffixes & {".java", ".kt", ".kts"}:
