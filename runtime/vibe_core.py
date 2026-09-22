@@ -12,6 +12,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from vibe_stacks import (
+    detect_stack as detect_stack_extended,
+    framework_context,
+    scan_polyglot_dependencies,
+)
+
 IGNORE_DIRS = {
     ".git",
     ".hg",
@@ -169,34 +175,7 @@ def load_config(root: Path) -> Dict[str, object]:
 
 
 def detect_stack(root: Path) -> Dict[str, object]:
-    markers = {
-        "python": ["pyproject.toml", "requirements.txt", "setup.py", "setup.cfg"],
-        "node": ["package.json"],
-        "typescript": ["tsconfig.json"],
-        "rust": ["Cargo.toml"],
-        "go": ["go.mod"],
-        "java": ["pom.xml", "build.gradle", "build.gradle.kts"],
-        "dotnet": ["global.json"],
-    }
-    found = {}
-    for name, filenames in markers.items():
-        present = [filename for filename in filenames if (root / filename).exists()]
-        if present:
-            found[name] = present
-
-    if "typescript" in found:
-        primary = "typescript"
-    elif "node" in found:
-        primary = "javascript"
-    elif "python" in found:
-        primary = "python"
-    elif found:
-        primary = sorted(found)[0]
-    else:
-        primary = "generic"
-
-    return {"primary": primary, "markers": found}
-
+    return detect_stack_extended(root)
 
 def ignored(path: Path, root: Path) -> bool:
     try:
@@ -281,11 +260,14 @@ def project_context(root: Path) -> Dict[str, object]:
 
     status = git(root, "status", "--short")
     branch = git(root, "branch", "--show-current")
+    framework = framework_context(root, files)
 
     data = {
         "generated_at": utc_now(),
         "root": str(root),
         "stack": detect_stack(root),
+        "frameworks": framework.get("frameworks", []),
+        "framework_route_count": len(framework.get("routes", [])),
         "source_file_count": len(source_files),
         "source_extensions": dict(sorted(counts.items())),
         "manifests": sorted(manifests),
@@ -298,7 +280,9 @@ def project_context(root: Path) -> Dict[str, object]:
         },
     }
     json_dump(runtime_dir(root) / "project-map.json", data)
+    json_dump(runtime_dir(root) / "framework-map.json", framework)
     copy_to_current_task(root, "context.json", data)
+    copy_to_current_task(root, "framework.json", framework)
     return data
 
 
@@ -501,6 +485,12 @@ def dependency_graph(root: Path) -> Dict[str, object]:
         edges.update(js_edges)
         scanners.append("javascript-typescript-relative-imports")
 
+    extra_nodes, extra_edges, extra_scanners = scan_polyglot_dependencies(root, all_files)
+    if extra_nodes:
+        nodes.update(extra_nodes)
+        edges.update(extra_edges)
+        scanners.extend(extra_scanners)
+
     reverse = defaultdict(list)
     adjacency = defaultdict(list)
     for source, target in sorted(edges):
@@ -517,7 +507,7 @@ def dependency_graph(root: Path) -> Dict[str, object]:
         "reverse_dependencies": {key: sorted(values) for key, values in sorted(reverse.items())},
         "cycles": strongly_connected_components(nodes, edges),
         "limitations": [
-            "Dynamic imports, runtime dependency injection, reflection, generated code, framework registries, and non-relative JS/TS aliases may require native analyzers."
+            "Static baseline only: dynamic imports, runtime dependency injection, reflection, generated code, framework registries, macros, and non-relative JS/TS aliases may require native analyzers."
         ],
         "primary_language": primary,
     }
