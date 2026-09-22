@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from vibe_architecture import architecture_policy, default_architecture_config
 from vibe_stacks import (
     detect_stack as detect_stack_extended,
     effective_adapter,
@@ -165,7 +166,8 @@ def load_config(root: Path) -> Dict[str, object]:
     data = json_load(config_path(root), {})
     if not isinstance(data, dict):
         data = {}
-    data.setdefault("version", 1)
+    data.setdefault("version", 2)
+    data.setdefault("architecture", default_architecture_config())
     data.setdefault("context", {})
     data.setdefault("dependency", {})
     data.setdefault("verification", {})
@@ -273,6 +275,7 @@ def project_context(root: Path) -> Dict[str, object]:
     branch = git(root, "branch", "--show-current")
     framework = framework_context(root, files)
     adapter = effective_adapter(root)
+    architecture = architecture_policy(root, config)
 
     data = {
         "generated_at": utc_now(),
@@ -280,6 +283,11 @@ def project_context(root: Path) -> Dict[str, object]:
         "stack": detect_stack(root),
         "frameworks": framework.get("frameworks", []),
         "framework_route_count": len(framework.get("routes", [])),
+        "architecture": {
+            "profile": architecture.get("effective_profile"),
+            "pattern": architecture.get("pattern"),
+            "module_style": architecture.get("module_style"),
+        },
         "active_adapter": {
             "language": (adapter.get("language") or {}).get("id"),
             "frameworks": [
@@ -301,9 +309,11 @@ def project_context(root: Path) -> Dict[str, object]:
     json_dump(runtime_dir(root) / "project-map.json", data)
     json_dump(runtime_dir(root) / "framework-map.json", framework)
     json_dump(runtime_dir(root) / "active-adapter.json", adapter)
+    json_dump(runtime_dir(root) / "architecture-policy.json", architecture)
     copy_to_current_task(root, "context.json", data)
     copy_to_current_task(root, "framework.json", framework)
     copy_to_current_task(root, "active-adapter.json", adapter)
+    copy_to_current_task(root, "architecture-policy.json", architecture)
     return data
 
 
