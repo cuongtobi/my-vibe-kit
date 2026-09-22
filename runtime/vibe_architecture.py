@@ -132,9 +132,25 @@ def _read_config(root: Path) -> Dict[str, object]:
         return {}
 
 
-def _source_stats(root: Path) -> Dict[str, int]:
+def _stats_from_relative_paths(paths: List[str]) -> Dict[str, int]:
     count = 0
     feature_dirs = set()
+    for value in paths:
+        rel = Path(value)
+        if rel.suffix.lower() not in SOURCE_EXTENSIONS:
+            continue
+        count += 1
+        parts = rel.parts
+        if len(parts) >= 2:
+            if parts[0] in ("src", "app", "lib", "internal", "packages", "apps") and len(parts) >= 3:
+                feature_dirs.add("/".join(parts[:2]))
+            else:
+                feature_dirs.add(parts[0])
+    return {"source_files": count, "feature_roots": len(feature_dirs)}
+
+
+def _source_stats(root: Path) -> Dict[str, int]:
+    paths: List[str] = []
     for current, dirs, files in os.walk(str(root)):
         current_path = Path(current)
         dirs[:] = [name for name in dirs if name not in IGNORE_DIRS]
@@ -142,19 +158,11 @@ def _source_stats(root: Path) -> Dict[str, int]:
             path = current_path / name
             if path.suffix.lower() not in SOURCE_EXTENSIONS:
                 continue
-            count += 1
             try:
-                rel = path.relative_to(root)
+                paths.append(path.relative_to(root).as_posix())
             except ValueError:
                 continue
-            parts = rel.parts
-            # Rough complexity signal: first meaningful directory below src/app/lib.
-            if len(parts) >= 2:
-                if parts[0] in ("src", "app", "lib", "internal", "packages", "apps") and len(parts) >= 3:
-                    feature_dirs.add("/".join(parts[:2]))
-                else:
-                    feature_dirs.add(parts[0])
-    return {"source_files": count, "feature_roots": len(feature_dirs)}
+    return _stats_from_relative_paths(paths)
 
 
 def default_architecture_config() -> Dict[str, object]:
@@ -173,7 +181,11 @@ def default_architecture_config() -> Dict[str, object]:
     }
 
 
-def architecture_policy(root: Path, config: Optional[Dict[str, object]] = None) -> Dict[str, object]:
+def architecture_policy(
+    root: Path,
+    config: Optional[Dict[str, object]] = None,
+    source_paths: Optional[List[str]] = None,
+) -> Dict[str, object]:
     stack = detect_stack(root)
     full_config = config if isinstance(config, dict) else _read_config(root)
     architecture = dict(default_architecture_config())
@@ -191,7 +203,7 @@ def architecture_policy(root: Path, config: Optional[Dict[str, object]] = None) 
     if requested not in {"auto", "simple", "standard", "strict"}:
         requested = "auto"
 
-    stats = _source_stats(root)
+    stats = _stats_from_relative_paths(source_paths) if source_paths is not None else _source_stats(root)
     thresholds = architecture.get("strict_thresholds") or {}
     auto_strict = bool(architecture.get("allow_auto_strict", True)) and (
         stats["source_files"] >= int(thresholds.get("source_files", 300))
