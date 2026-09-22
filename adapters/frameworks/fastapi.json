@@ -1,0 +1,9 @@
+{
+  "id": "fastapi",
+  "kind": "framework",
+  "language": "python",
+  "detect": ["python dependency fastapi"],
+  "context": ["routes", "APIRouter", "dependencies", "pydantic-schemas"],
+  "architecture_hints": ["separate transport schemas from domain logic", "track Depends-based runtime dependencies"],
+  "verification": ["pytest", "ruff", "pyright-or-mypy"]
+}
