@@ -29,10 +29,8 @@ Understand the smallest safe change before implementation.
 
    ```bash
    python .vibe/tools/vibe.py context
-   python .vibe/tools/vibe.py adapter
-   python .vibe/tools/vibe.py framework
-   python .vibe/tools/vibe.py architecture
    python .vibe/tools/vibe.py deps
+   python .vibe/tools/vibe.py relevant
    python .vibe/tools/vibe.py snapshot before
    ```
 
@@ -41,7 +39,7 @@ Understand the smallest safe change before implementation.
    - default to `standard + feature-first + modular-layered + framework-native`,
    - keep transport/presentation thin and business behavior in application/domain code,
    - do not introduce Clean/Hexagonal ports/adapters unless the effective profile is `strict`.
-5. Locate the smallest relevant code path using repository search plus the generated maps.
+5. Start from `.vibe/runtime/relevant-context.json`. Read only the bounded source/test files it identifies, then expand selectively when evidence requires it. Do not load the full repository or full dependency graph into model context.
 6. Identify:
    - target files/symbols,
    - direct dependencies,
@@ -90,6 +88,15 @@ Include:
 - ordered implementation steps,
 - verification commands,
 - known uncertainty.
+
+## Persistent-context rules
+
+- `.vibe/state/` is the reusable repository cache across sessions.
+- `context` and `deps` must prefer CACHE_HIT, then Git-based INCREMENTAL_REFRESH, and use FULL_REBUILD only when the cache cannot be trusted.
+- `.vibe/tasks/` is cold history. Do not enumerate or read old task folders automatically.
+- Load an old task only when the user explicitly refers to it or current evidence identifies it as materially relevant.
+- Current source/tests/config remain more authoritative than historical task artifacts.
+- Respect the configured bounded-context limits; request/read additional files progressively rather than broadening context preemptively.
 
 ## Constraints
 
