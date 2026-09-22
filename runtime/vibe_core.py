@@ -21,6 +21,9 @@ from vibe_stacks import (
 
 IGNORE_DIRS = {
     ".git",
+    ".vibe",
+    ".agents",
+    ".claude",
     ".hg",
     ".svn",
     ".idea",
