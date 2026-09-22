@@ -18,7 +18,7 @@ from vibe_stacks import (  # noqa: E402
     discover_verification_commands as discover_verification_commands_full,
 )
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 SUPPORTED_AGENTS = ("codex", "claude", "antigravity")
 
 
@@ -123,12 +123,21 @@ def discover_verification_commands(target: Path) -> List[List[str]]:
 
 def default_config(target: Path) -> Dict[str, object]:
     return {
-        "version": 2,
+        "version": 3,
         "stack": detect_stack(target),
         "architecture": default_architecture_config(),
         "context": {
-            "max_dependency_depth": 3,
+            "strategy": "persistent-incremental",
+            "max_dependency_depth": 2,
             "max_files": 20000,
+            "max_source_files": 20,
+            "max_test_files": 10,
+            "max_related_modules": 8,
+        },
+        "index": {
+            "backend": "json",
+            "use_git_delta": True,
+            "full_rebuild_on_schema_change": True,
         },
         "dependency": {
             "fail_on_new_cycles": True,
@@ -139,6 +148,7 @@ def default_config(target: Path) -> Dict[str, object]:
         },
         "tasks": {
             "keep_history": True,
+            "auto_load_history": False,
         },
     }
 
@@ -220,7 +230,7 @@ def install_project(
             "path": str(target / ".vibe" / ".gitignore"),
             "status": write_text_safe(
                 target / ".vibe" / ".gitignore",
-                "runtime/\n",
+                "runtime/\nstate/\n",
                 dry_run=dry_run,
                 force=force,
             ),
