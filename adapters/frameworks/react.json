@@ -1,0 +1,28 @@
+{
+  "id": "react",
+  "kind": "framework",
+  "language": "javascript-or-typescript",
+  "detect": [
+    "package dependency react"
+  ],
+  "context": [
+    "components",
+    "hooks",
+    "feature-modules",
+    "state",
+    "api-clients",
+    "tests"
+  ],
+  "architecture_hints": [
+    "prefer feature-first UI modules",
+    "keep business workflows out of components",
+    "shared modules must not depend on feature internals"
+  ],
+  "verification": [
+    "package lint",
+    "package typecheck",
+    "package test",
+    "package build",
+    "playwright-or-cypress-when-configured"
+  ]
+}
