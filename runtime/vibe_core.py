@@ -741,32 +741,243 @@ def scan_python_dependency_sources(
 def scan_python_dependencies(root: Path, files: Sequence[Path]) -> Tuple[Set[str], Set[Tuple[str, str]]]:
     return scan_python_dependency_sources(root, files, files)
 
-def resolve_js_target(source: Path, spec: str, root: Path) -> Optional[str]:
-    if not spec.startswith("."):
-        return None
-    # Resolve both sides against their canonical filesystem paths. On Windows,
-    # temporary/workspace roots may be exposed through short-name or junction
-    # aliases, so resolving only the candidate can make relative_to(root) fail
-    # even when both paths refer to the same repository.
+def _jsonc(path: Path) -> Dict[str, object]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return {}
+    pattern = re.compile(r'("(?:\\.|[^"\\])*")|(/\\*.*?\\*/|//[^\\r\\n]*)', re.S)
+    stripped = pattern.sub(lambda match: match.group(1) or "", text)
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _resolve_js_path(base: Path, root: Path) -> Optional[str]:
     resolved_root = root.resolve()
-    base = (source.parent / spec).resolve()
     candidates = []
-    if base.suffix:
+    suffix = base.suffix.lower()
+    if suffix:
         candidates.append(base)
+        if suffix in {".js", ".jsx"}:
+            candidates.extend([base.with_suffix(".ts"), base.with_suffix(".tsx")])
     else:
         for ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
             candidates.append(Path(str(base) + ext))
         for ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
             candidates.append(base / ("index" + ext))
-
     for candidate in candidates:
         if not candidate.exists() or not candidate.is_file():
             continue
         try:
-            rel = candidate.resolve().relative_to(resolved_root)
+            return candidate.resolve().relative_to(resolved_root).as_posix()
         except ValueError:
             continue
-        return rel.as_posix()
+    return None
+
+
+def _js_configurations(root: Path) -> List[Dict[str, object]]:
+    configs = []
+    for current, dirs, files in os.walk(str(root)):
+        dirs[:] = [name for name in dirs if name not in IGNORE_DIRS]
+        for name in files:
+            lowered = name.lower()
+            if not (
+                lowered == "jsconfig.json"
+                or (lowered.startswith("tsconfig") and lowered.endswith(".json"))
+            ):
+                continue
+            path = Path(current) / name
+            data = _jsonc(path)
+            options = data.get("compilerOptions") or {}
+            if not isinstance(options, dict):
+                continue
+            paths = options.get("paths") or {}
+            if not isinstance(paths, dict):
+                paths = {}
+            base_url = options.get("baseUrl")
+            base = path.parent / str(base_url) if isinstance(base_url, str) else path.parent
+            configs.append({
+                "directory": path.parent.resolve(),
+                "base_url": base.resolve(),
+                "paths": {
+                    str(key): [str(value) for value in values]
+                    for key, values in paths.items()
+                    if isinstance(key, str) and isinstance(values, list)
+                },
+            })
+    configs.sort(key=lambda item: len(Path(item["directory"]).parts), reverse=True)
+    return configs
+
+
+def _workspace_patterns(data: Dict[str, object]) -> List[str]:
+    workspaces = data.get("workspaces")
+    if isinstance(workspaces, list):
+        return [str(item) for item in workspaces if isinstance(item, str)]
+    if isinstance(workspaces, dict):
+        packages = workspaces.get("packages")
+        if isinstance(packages, list):
+            return [str(item) for item in packages if isinstance(item, str)]
+    return []
+
+
+def _workspace_packages(root: Path) -> Dict[str, Dict[str, object]]:
+    root_package = _jsonc(root / "package.json")
+    result = {}
+    for pattern in _workspace_patterns(root_package):
+        for directory in root.glob(pattern):
+            package_path = directory / "package.json"
+            if not package_path.is_file():
+                continue
+            data = _jsonc(package_path)
+            name = data.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+            result[name] = {
+                "directory": directory.resolve(),
+                "exports": data.get("exports"),
+                "source": data.get("source"),
+                "module": data.get("module"),
+                "main": data.get("main"),
+                "types": data.get("types"),
+            }
+    return result
+
+
+def _export_string(value: object) -> Optional[str]:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ("import", "default", "require", "types", "node", "browser"):
+            if key in value:
+                selected = _export_string(value.get(key))
+                if selected:
+                    return selected
+    return None
+
+
+def _workspace_targets(package: Dict[str, object], subpath: str) -> List[Path]:
+    directory = Path(package["directory"])
+    values = []
+    exports = package.get("exports")
+    if not subpath:
+        if isinstance(exports, dict) and "." in exports:
+            selected = _export_string(exports.get("."))
+            if selected:
+                values.append(selected)
+        else:
+            selected = _export_string(exports)
+            if selected:
+                values.append(selected)
+        for key in ("source", "module", "main", "types"):
+            value = package.get(key)
+            if isinstance(value, str):
+                values.append(value)
+        values.extend(["src/index", "index"])
+    else:
+        export_key = "./" + subpath
+        if isinstance(exports, dict):
+            selected = _export_string(exports.get(export_key))
+            if selected:
+                values.append(selected)
+            for key, value in exports.items():
+                if not isinstance(key, str) or "*" not in key:
+                    continue
+                prefix, _, suffix = key.partition("*")
+                if export_key.startswith(prefix) and export_key.endswith(suffix):
+                    wildcard = export_key[len(prefix):]
+                    if suffix:
+                        wildcard = wildcard[:-len(suffix)]
+                    selected = _export_string(value)
+                    if selected:
+                        values.append(selected.replace("*", wildcard))
+        values.extend([subpath, "src/" + subpath])
+    return [directory / value.lstrip("./") for value in values]
+
+
+def _nearest_package_root(source: Path, root: Path) -> Path:
+    current = source.parent.resolve()
+    resolved_root = root.resolve()
+    while True:
+        if (current / "package.json").is_file():
+            return current
+        if current == resolved_root or resolved_root not in current.parents:
+            return resolved_root
+        current = current.parent
+
+
+def _alias_bases(
+    source: Path,
+    spec: str,
+    root: Path,
+    resolver: Dict[str, object],
+) -> List[Path]:
+    result = []
+    source_resolved = source.resolve()
+    for config in resolver.get("configs") or []:
+        directory = Path(config["directory"])
+        if directory != source_resolved.parent and directory not in source_resolved.parents:
+            continue
+        paths = config.get("paths") or {}
+        for pattern, targets in paths.items():
+            wildcard = None
+            if "*" in pattern:
+                prefix, _, suffix = pattern.partition("*")
+                if not (spec.startswith(prefix) and spec.endswith(suffix)):
+                    continue
+                wildcard = spec[len(prefix):]
+                if suffix:
+                    wildcard = wildcard[:-len(suffix)]
+            elif pattern != spec:
+                continue
+            for target in targets:
+                value = target.replace("*", wildcard or "")
+                result.append(Path(config["base_url"]) / value)
+    if spec.startswith("@/"):
+        package_root = _nearest_package_root(source, root)
+        src = package_root / "src"
+        if src.is_dir():
+            result.append(src / spec[2:])
+    return result
+
+
+def _workspace_bases(spec: str, resolver: Dict[str, object]) -> List[Path]:
+    packages = resolver.get("workspaces") or {}
+    for name in sorted(packages, key=len, reverse=True):
+        if spec == name:
+            return _workspace_targets(packages[name], "")
+        prefix = name + "/"
+        if spec.startswith(prefix):
+            return _workspace_targets(packages[name], spec[len(prefix):])
+    return []
+
+
+def _js_resolution_context(root: Path) -> Dict[str, object]:
+    return {
+        "configs": _js_configurations(root),
+        "workspaces": _workspace_packages(root),
+    }
+
+
+def resolve_js_target(
+    source: Path,
+    spec: str,
+    root: Path,
+    resolver: Optional[Dict[str, object]] = None,
+) -> Optional[str]:
+    bases = []
+    if spec.startswith("."):
+        bases.append(source.parent / spec)
+    else:
+        active = resolver or _js_resolution_context(root)
+        bases.extend(_alias_bases(source, spec, root, active))
+        bases.extend(_workspace_bases(spec, active))
+    for base in bases:
+        resolved = _resolve_js_path(base.resolve(), root)
+        if resolved:
+            return resolved
     return None
 
 
@@ -775,6 +986,7 @@ def scan_js_dependencies(root: Path, files: Sequence[Path]) -> Tuple[Set[str], S
     js_files = [path for path in files if path.suffix.lower() in js_ext]
     nodes = {path.relative_to(root).as_posix() for path in js_files}
     edges = set()
+    resolver = _js_resolution_context(root)
     for path in js_files:
         rel = path.relative_to(root).as_posix()
         try:
@@ -782,7 +994,7 @@ def scan_js_dependencies(root: Path, files: Sequence[Path]) -> Tuple[Set[str], S
         except (OSError, UnicodeDecodeError):
             continue
         for match in JS_IMPORT_RE.finditer(text):
-            target = resolve_js_target(path, match.group(1), root)
+            target = resolve_js_target(path, match.group(1), root, resolver)
             if target and target != rel:
                 edges.add((rel, target))
     return nodes, edges
