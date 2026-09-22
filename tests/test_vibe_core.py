@@ -514,7 +514,7 @@ class VibeCoreTests(unittest.TestCase):
             encoding="utf-8",
         )
         (root / "tsconfig.json").write_text(
-            json.dumps({"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["src/*"]}}}),
+            '{\n  // alias used by the application\n  "compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["src/*"]}}\n}\n',
             encoding="utf-8",
         )
         src = root / "src"
