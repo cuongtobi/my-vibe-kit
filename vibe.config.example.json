@@ -1,5 +1,18 @@
 {
-  "version": 1,
+  "version": 2,
+  "architecture": {
+    "profile": "auto",
+    "default_profile": "standard",
+    "module_style": "feature-first",
+    "default_pattern": "modular-layered",
+    "strict_pattern": "hexagonal",
+    "framework_conventions": "prefer",
+    "allow_auto_strict": true,
+    "strict_thresholds": {
+      "source_files": 300,
+      "feature_roots": 20
+    }
+  },
   "context": {
     "max_dependency_depth": 3,
     "max_files": 20000
