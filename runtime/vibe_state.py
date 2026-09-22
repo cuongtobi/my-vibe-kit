@@ -315,6 +315,7 @@ def cache_status(
         required += ["context", "files", "framework", "adapter", "architecture"]
     artifacts = index["artifacts"]
     context_meta = artifacts.get("context") or {}
+    context_bundle = {"context", "files", "framework", "adapter", "architecture"}
     for name in set(required):
         item = artifacts.get(name)
         digest = _file_sha256(root, cache_path(root, name).relative_to(root).as_posix())
@@ -322,7 +323,7 @@ def cache_status(
             not isinstance(item, dict)
             or not digest or item.get("sha256") != digest
             or load_cache(root, name) is None
-            or (name != "dependency" and isinstance(context_meta, dict)
+            or (name in context_bundle and isinstance(context_meta, dict)
                 and item.get("fingerprint") != context_meta.get("fingerprint"))
         ):
             return {
