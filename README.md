@@ -413,7 +413,7 @@ A 5,000-file repository therefore does not imply a 5,000-file model context.
 
 ## Default personal-project configuration
 
-The default v0.4-style configuration is intentionally simple:
+The default v0.7 configuration is intentionally simple:
 
 ```json
 {
