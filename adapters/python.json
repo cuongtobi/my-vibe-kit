@@ -1,9 +1,0 @@
-{
-  "name": "python",
-  "markers": ["pyproject.toml", "requirements.txt", "setup.py", "setup.cfg"],
-  "dependency": {
-    "baseline": "python-ast",
-    "recommended": ["grimp", "import-linter"]
-  },
-  "verification_recommended": ["ruff", "pyright-or-mypy", "pytest"]
-}
