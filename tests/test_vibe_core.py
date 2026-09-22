@@ -92,6 +92,16 @@ class VibeCoreTests(unittest.TestCase):
             encoding="utf-8",
         )
         (root / "artisan").write_text("", encoding="utf-8")
+        language_adapters = root / ".vibe" / "adapters" / "languages"
+        framework_adapters = root / ".vibe" / "adapters" / "frameworks"
+        language_adapters.mkdir(parents=True)
+        framework_adapters.mkdir(parents=True)
+        (language_adapters / "php.json").write_text(
+            json.dumps({"id": "php", "kind": "language"}), encoding="utf-8"
+        )
+        (framework_adapters / "laravel.json").write_text(
+            json.dumps({"id": "laravel", "kind": "framework"}), encoding="utf-8"
+        )
         routes = root / "routes"
         routes.mkdir()
         (routes / "web.php").write_text(
@@ -107,6 +117,13 @@ class VibeCoreTests(unittest.TestCase):
 
         context = vibe_core.project_context(root)
         self.assertIn("laravel", context["frameworks"])
+        self.assertEqual(context["active_adapter"]["language"], "php")
+        self.assertIn("laravel", context["active_adapter"]["frameworks"])
+        active = json.loads(
+            (root / ".vibe/runtime/active-adapter.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(active["language"]["id"], "php")
+        self.assertEqual(active["frameworks"][0]["id"], "laravel")
         framework = json.loads(
             (root / ".vibe/runtime/framework-map.json").read_text(encoding="utf-8")
         )
