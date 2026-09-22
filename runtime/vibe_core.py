@@ -146,7 +146,7 @@ def git(root: Path, *args: str) -> Optional[str]:
     result = run_process(["git"] + list(args), cwd=root, timeout=60)
     if result["returncode"] != 0:
         return None
-    return str(result["stdout"]).strip()
+    return str(result["stdout"]).rstrip("\r\n")
 
 
 def repository_root(start: Path) -> Path:
