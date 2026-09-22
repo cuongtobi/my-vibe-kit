@@ -271,6 +271,7 @@ MANIFEST_NAMES = {
     "setup.py",
     "setup.cfg",
     "package.json",
+    "pnpm-workspace.yaml",
     "tsconfig.json",
     "composer.json",
     "composer.lock",
@@ -1222,7 +1223,7 @@ def dependency_graph(root: Path, force: bool = False) -> Dict[str, object]:
                 rescan_sources.update(new_paths)
 
         js_resolution_manifest_changed = any(
-            Path(path).name == "package.json"
+            Path(path).name in {"package.json", "pnpm-workspace.yaml"}
             or Path(path).name == "jsconfig.json"
             or (Path(path).name.startswith("tsconfig") and Path(path).suffix.lower() == ".json")
             for path in changed
