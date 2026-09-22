@@ -833,10 +833,40 @@ def _workspace_patterns(data: Dict[str, object]) -> List[str]:
     return []
 
 
+def _pnpm_workspace_patterns(root: Path) -> List[str]:
+    path = root / "pnpm-workspace.yaml"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+    patterns = []
+    active = False
+    block_indent = 0
+    for line in lines:
+        stripped = line.strip()
+        if not active:
+            if stripped == "packages:":
+                active = True
+                block_indent = len(line) - len(line.lstrip())
+            continue
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent <= block_indent and not stripped.startswith("-"):
+            break
+        match = re.match(r"""-\s*['"]?([^'"]+)['"]?\s*$""", stripped)
+        if match:
+            value = match.group(1).strip()
+            if value and not value.startswith("!"):
+                patterns.append(value)
+    return patterns
+
+
 def _workspace_packages(root: Path) -> Dict[str, Dict[str, object]]:
     root_package = _jsonc(root / "package.json")
     result = {}
-    for pattern in _workspace_patterns(root_package):
+    patterns = _workspace_patterns(root_package) + _pnpm_workspace_patterns(root)
+    for pattern in dict.fromkeys(patterns):
         for directory in root.glob(pattern):
             package_path = directory / "package.json"
             if not package_path.is_file():
