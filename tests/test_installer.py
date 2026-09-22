@@ -63,6 +63,11 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertIn(["npm", "run", "lint"], config["verification"]["commands"])
             self.assertIn(["npm", "run", "test"], config["verification"]["commands"])
+            self.assertEqual(config["architecture"]["profile"], "auto")
+            self.assertEqual(config["architecture"]["default_profile"], "standard")
+            self.assertEqual(config["architecture"]["module_style"], "feature-first")
+            self.assertEqual(config["architecture"]["default_pattern"], "modular-layered")
+            self.assertEqual(config["architecture"]["strict_pattern"], "hexagonal")
 
     def test_laravel_install_detects_stack_and_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
