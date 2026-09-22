@@ -1,0 +1,9 @@
+{
+  "id": "flask",
+  "kind": "framework",
+  "language": "python",
+  "detect": ["python dependency flask"],
+  "context": ["routes", "blueprints", "extensions", "application-factory"],
+  "architecture_hints": ["keep request handlers thin", "separate service/domain logic from Flask globals"],
+  "verification": ["pytest", "ruff", "pyright-or-mypy"]
+}
