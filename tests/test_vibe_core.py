@@ -539,6 +539,52 @@ class VibeCoreTests(unittest.TestCase):
         self.assertIn(("src/main.ts", "src/services/auth.ts"), edges)
         self.assertIn(("src/consumer.ts", "packages/ui/src/button.ts"), edges)
 
+    def test_js_resolution_manifest_change_rescans_unchanged_importers(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "package.json").write_text(json.dumps({"workspaces": ["packages/*"]}), encoding="utf-8")
+        (root / "tsconfig.json").write_text(
+            json.dumps({"compilerOptions": {"paths": {"@/*": ["src/*"]}}}),
+            encoding="utf-8",
+        )
+        (root / "src").mkdir()
+        (root / "alt").mkdir()
+        (root / "src" / "auth.ts").write_text("export const auth = 'src'\n", encoding="utf-8")
+        (root / "alt" / "auth.ts").write_text("export const auth = 'alt'\n", encoding="utf-8")
+        (root / "main.ts").write_text("import { auth } from '@/auth'\n", encoding="utf-8")
+
+        package = root / "packages" / "ui"
+        (package / "src").mkdir(parents=True)
+        (package / "package.json").write_text(
+            json.dumps({"name": "@acme/ui", "exports": ".\/src\/a.ts".replace("\\/", "/")}),
+            encoding="utf-8",
+        )
+        (package / "src" / "a.ts").write_text("export const value = 'a'\n", encoding="utf-8")
+        (package / "src" / "b.ts").write_text("export const value = 'b'\n", encoding="utf-8")
+        (root / "consumer.ts").write_text("import { value } from '@acme/ui'\n", encoding="utf-8")
+        self.init_git(root)
+
+        before = vibe_core.dependency_graph(root)
+        before_edges = {(item["from"], item["to"]) for item in before["edges"]}
+        self.assertIn(("main.ts", "src/auth.ts"), before_edges)
+        self.assertIn(("consumer.ts", "packages/ui/src/a.ts"), before_edges)
+
+        (root / "tsconfig.json").write_text(
+            json.dumps({"compilerOptions": {"paths": {"@/*": ["alt/*"]}}}),
+            encoding="utf-8",
+        )
+        (package / "package.json").write_text(
+            json.dumps({"name": "@acme/ui", "exports": "./src/b.ts"}),
+            encoding="utf-8",
+        )
+        after = vibe_core.dependency_graph(root)
+        after_edges = {(item["from"], item["to"]) for item in after["edges"]}
+        self.assertEqual(after["cache"]["mode"], "INCREMENTAL_REFRESH")
+        self.assertIn(("main.ts", "alt/auth.ts"), after_edges)
+        self.assertNotIn(("main.ts", "src/auth.ts"), after_edges)
+        self.assertIn(("consumer.ts", "packages/ui/src/b.ts"), after_edges)
+        self.assertNotIn(("consumer.ts", "packages/ui/src/a.ts"), after_edges)
+
     def test_polyglot_active_adapter_exposes_all_languages_and_primary(self):
         temp, root = self.make_repo()
         self.addCleanup(temp.cleanup)
