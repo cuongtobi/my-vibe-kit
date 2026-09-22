@@ -1,0 +1,9 @@
+{
+  "id": "laravel",
+  "kind": "framework",
+  "language": "php",
+  "detect": ["composer dependency laravel/framework", "artisan"],
+  "context": ["routes", "controllers", "models", "middleware", "providers", "jobs", "events", "listeners", "policies", "migrations"],
+  "architecture_hints": ["track service-container bindings and facades", "treat migrations and Eloquent relations as persistence dependencies"],
+  "verification": ["php artisan test", "phpstan-or-larastan", "pest-or-phpunit", "deptrac-when-configured"]
+}
