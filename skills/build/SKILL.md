@@ -15,7 +15,7 @@ An implementation request authorizes proceeding through plan, build, and verify 
 
 1. Read `AGENTS.md`.
 2. Read `.vibe/runtime/current-task.json` and only that task's plan/impact artifacts when present. Reuse the current task for a continuation; do not reset its dependency or working-tree baseline. If the plan is missing or materially outdated, apply the plan procedure within the existing authorization before editing. Do not scan historical task folders.
-3. Read `.vibe/runtime/relevant-context.json` when available and use it as the initial bounded source/test scope; otherwise start from the plan's identified files and project-native inspection.
+3. Read `.vibe/runtime/relevant-context.json` when available and use its indexed retrieval evidence plus bounded source/test scope as the initial working set; otherwise start from the plan's identified files and project-native inspection.
 4. Read `.vibe/runtime/architecture-policy.json` when present.
 5. Check the target scope, acceptance criteria, and `working-tree-before.md` against the user's request. Preserve pre-existing staged, unstaged, and untracked work, including unrelated hunks in a target file. Do not reset, stage, or discard user changes to simplify the diff.
 6. If new evidence changes the scope materially, update impact analysis before editing outside the plan.
@@ -42,7 +42,8 @@ For greenfield/new modules, follow the effective architecture policy:
 - Avoid unrelated formatting/refactors.
 - Keep changes reviewable.
 - Implement the plan's observable acceptance criteria and maintain their evidence mapping. If a requirement changes, update the plan and affected checks rather than silently dropping the criterion.
-- Expand beyond the bounded relevant-context file set only when a concrete dependency, consumer, failing test, or contract requires it.
+- Expand beyond the bounded relevant-context file set only when a concrete dependency, consumer, failing test, dynamic/framework relationship, or contract requires it.
+- Treat the runtime dependency graph as a static advisory baseline, not proof that no additional runtime dependency exists.
 - Never read all historical `.vibe/tasks/` as background context.
 
 ## Mode behavior
