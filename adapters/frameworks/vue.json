@@ -1,0 +1,28 @@
+{
+  "id": "vue",
+  "kind": "framework",
+  "language": "javascript-or-typescript",
+  "detect": [
+    "package dependency vue"
+  ],
+  "context": [
+    "single-file-components",
+    "composables",
+    "stores",
+    "router",
+    "feature-modules",
+    "tests"
+  ],
+  "architecture_hints": [
+    "prefer feature-first modules around Vue SFCs and composables",
+    "keep Pinia/store and API concerns out of presentational components",
+    "shared code must not depend on feature internals"
+  ],
+  "verification": [
+    "package lint",
+    "package typecheck",
+    "package test",
+    "package build",
+    "playwright-or-cypress-when-configured"
+  ]
+}
