@@ -98,8 +98,8 @@ The workflow is language-agnostic. The runtime adds stack-aware adapters and bas
 | Language | Baseline dependency scan | Framework adapters |
 | --- | --- | --- |
 | Python | AST import graph | Flask, FastAPI, Django |
-| JavaScript | relative + tsconfig/jsconfig alias + local workspace import graph | Express, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
-| TypeScript | relative + tsconfig/jsconfig alias + local workspace import graph | Express, NestJS, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
+| JavaScript | relative + tsconfig/jsconfig alias + local npm/yarn/pnpm workspace import graph | Express, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
+| TypeScript | relative + tsconfig/jsconfig alias + local npm/yarn/pnpm workspace import graph | Express, NestJS, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
 | PHP | namespace/use + literal require/include graph | Laravel, WordPress |
 | Java/Kotlin | package/import graph | Spring |
 | Go | module-local import graph | Gin, Fiber |
@@ -708,7 +708,7 @@ The verification summary includes `dependency_comparison_available`; when false,
 Built-in zero-dependency baseline:
 
 - Python — AST local import graph.
-- JavaScript/TypeScript — relative imports plus statically discoverable `tsconfig`/`jsconfig` path aliases, conventional `@/` source aliases, and local workspace package imports/exports.
+- JavaScript/TypeScript — relative imports plus statically discoverable `tsconfig`/`jsconfig` path aliases, conventional `@/` source aliases, and local npm/yarn/pnpm workspace package imports/exports.
 - PHP — namespace/use plus literal require/include relationships.
 - Java/Kotlin — package/import relationships.
 - Go — local module import relationships.
