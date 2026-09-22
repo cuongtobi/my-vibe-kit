@@ -10,7 +10,14 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "0.1.0"
+sys.path.insert(0, str(ROOT / "runtime"))
+
+from vibe_stacks import (  # noqa: E402
+    detect_stack as detect_stack_full,
+    discover_verification_commands as discover_verification_commands_full,
+)
+
+VERSION = "0.2.0"
 SUPPORTED_AGENTS = ("codex", "claude", "antigravity")
 
 
@@ -100,32 +107,7 @@ def copy_tree_safe(
 
 
 def detect_stack(target: Path) -> Dict[str, object]:
-    markers = {
-        "python": ["pyproject.toml", "requirements.txt", "setup.py", "setup.cfg"],
-        "node": ["package.json"],
-        "typescript": ["tsconfig.json"],
-        "rust": ["Cargo.toml"],
-        "go": ["go.mod"],
-        "java": ["pom.xml", "build.gradle", "build.gradle.kts"],
-        "dotnet": ["global.json"],
-    }
-    found = {}
-    for name, candidates in markers.items():
-        present = [item for item in candidates if (target / item).exists()]
-        if present:
-            found[name] = present
-    if "typescript" in found:
-        primary = "typescript"
-    elif "node" in found:
-        primary = "javascript"
-    elif "python" in found:
-        primary = "python"
-    elif found:
-        primary = sorted(found)[0]
-    else:
-        primary = "generic"
-    return {"primary": primary, "markers": found}
-
+    return detect_stack_full(target)
 
 def package_runner(target: Path) -> List[str]:
     if (target / "pnpm-lock.yaml").exists():
@@ -136,47 +118,7 @@ def package_runner(target: Path) -> List[str]:
 
 
 def discover_verification_commands(target: Path) -> List[List[str]]:
-    commands = []
-    package_json = target / "package.json"
-    if package_json.exists():
-        try:
-            data = json.loads(package_json.read_text(encoding="utf-8"))
-            scripts = data.get("scripts") or {}
-            runner = package_runner(target)
-            for name in ("lint", "typecheck", "test", "build"):
-                if name in scripts:
-                    commands.append(runner + [name])
-        except (OSError, json.JSONDecodeError):
-            pass
-
-    python_text = ""
-    for filename in ("pyproject.toml", "requirements.txt", "requirements-dev.txt"):
-        path = target / filename
-        if path.exists():
-            try:
-                python_text += "\n" + path.read_text(encoding="utf-8").lower()
-            except (OSError, UnicodeDecodeError):
-                pass
-
-    if python_text:
-        if "ruff" in python_text:
-            commands.append(["python", "-m", "ruff", "check", "."])
-        if "pyright" in python_text:
-            commands.append(["pyright"])
-        elif "mypy" in python_text:
-            commands.append(["python", "-m", "mypy", "."])
-        if "pytest" in python_text:
-            commands.append(["python", "-m", "pytest", "-q"])
-
-    unique = []
-    seen = set()
-    for command in commands:
-        key = tuple(command)
-        if key not in seen:
-            unique.append(command)
-            seen.add(key)
-    return unique
-
+    return discover_verification_commands_full(target)
 
 def default_config(target: Path) -> Dict[str, object]:
     return {
