@@ -1,0 +1,14 @@
+{
+  "id": "python",
+  "kind": "language",
+  "extensions": [".py"],
+  "manifests": ["pyproject.toml", "requirements.txt", "setup.py", "setup.cfg", "Pipfile"],
+  "dependency": {
+    "baseline": "python-ast",
+    "recommended": ["grimp", "import-linter"]
+  },
+  "verification": {
+    "recommended": ["ruff", "pyright-or-mypy", "pytest"]
+  },
+  "framework_candidates": ["flask", "fastapi", "django"]
+}
