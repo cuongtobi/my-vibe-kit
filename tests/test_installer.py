@@ -68,6 +68,18 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(config["architecture"]["module_style"], "feature-first")
             self.assertEqual(config["architecture"]["default_pattern"], "modular-layered")
             self.assertEqual(config["architecture"]["strict_pattern"], "hexagonal")
+            self.assertEqual(config["version"], 3)
+            self.assertEqual(config["context"]["strategy"], "persistent-incremental")
+            self.assertEqual(config["context"]["max_dependency_depth"], 2)
+            self.assertEqual(config["context"]["max_source_files"], 20)
+            self.assertEqual(config["context"]["max_test_files"], 10)
+            self.assertEqual(config["index"]["backend"], "json")
+            self.assertTrue(config["index"]["use_git_delta"])
+            self.assertFalse(config["tasks"]["auto_load_history"])
+            vibe_gitignore = (target / ".vibe/.gitignore").read_text(encoding="utf-8")
+            self.assertIn("runtime/", vibe_gitignore)
+            self.assertIn("state/", vibe_gitignore)
+            self.assertTrue((target / ".vibe/tools/vibe_state.py").exists())
 
     def test_laravel_install_detects_stack_and_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
