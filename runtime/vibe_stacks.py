@@ -53,6 +53,13 @@ def detect_stack(root: Path) -> Dict[str, object]:
     }
     found = {k:[n for n in v if (root/n).exists()] for k,v in markers.items()}
     found = {k:v for k,v in found.items() if v}
+    root_php = sorted(p.name for p in root.glob('*.php') if p.is_file())
+    style_text = _text(root/'style.css')
+    plugin_header = any(re.search(r'(?mi)^\s*Plugin Name\s*:', _text(root/name)) for name in root_php)
+    theme_header = bool(re.search(r'(?mi)^\s*Theme Name\s*:', style_text))
+    standalone_wordpress = plugin_header or theme_header
+    if ('php' not in found) and ((root/'wp-content').exists() or standalone_wordpress or root_php):
+        found['php'] = root_php or ['wp-content']
     order = ['typescript','javascript','python','php','java','go','rust','dotnet']
     primary = next((x for x in order if x in found), sorted(found)[0] if found else 'generic')
     frameworks, evidence = [], {}
@@ -79,10 +86,10 @@ def detect_stack(root: Path) -> Dict[str, object]:
     composer = _deps(_json(root/'composer.json'), ['require','require-dev'])
     if 'laravel/framework' in composer or (root/'artisan').exists(): frameworks.append('laravel'); evidence['laravel']=['laravel/framework or artisan']
     wordpress_composer = any(dep in composer for dep in ('johnpbloch/wordpress-core','roots/wordpress','wordpress/wordpress'))
-    wordpress_marker = (root/'wp-config.php').exists() or (root/'wp-content').exists()
+    wordpress_marker = (root/'wp-config.php').exists() or (root/'wp-content').exists() or standalone_wordpress
     if wordpress_composer or wordpress_marker:
         frameworks.append('wordpress')
-        evidence['wordpress']=['WordPress core/composer dependency or wp-config.php/wp-content marker']
+        evidence['wordpress']=['WordPress core/composer dependency, wp-config.php/wp-content marker, or plugin/theme header']
     java = '\n'.join(_text(root/n).lower() for n in ['pom.xml','build.gradle','build.gradle.kts'])
     if 'spring-boot' in java or 'org.springframework' in java: frameworks.append('spring'); evidence['spring']=['Spring dependency']
     gomod = _text(root/'go.mod').lower()
