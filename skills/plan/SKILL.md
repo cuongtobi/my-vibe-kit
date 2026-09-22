@@ -31,12 +31,18 @@ Understand the smallest safe change before implementation.
    python .vibe/tools/vibe.py context
    python .vibe/tools/vibe.py adapter
    python .vibe/tools/vibe.py framework
+   python .vibe/tools/vibe.py architecture
    python .vibe/tools/vibe.py deps
    python .vibe/tools/vibe.py snapshot before
    ```
 
-4. Locate the smallest relevant code path using repository search plus the generated maps.
-5. Identify:
+4. If this is a greenfield/new project or the repository has no established architecture:
+   - use `architecture-policy.json` as the default design authority,
+   - default to `standard + feature-first + modular-layered + framework-native`,
+   - keep transport/presentation thin and business behavior in application/domain code,
+   - do not introduce Clean/Hexagonal ports/adapters unless the effective profile is `strict`.
+5. Locate the smallest relevant code path using repository search plus the generated maps.
+6. Identify:
    - target files/symbols,
    - direct dependencies,
    - reverse dependencies / consumers,
@@ -44,27 +50,29 @@ Understand the smallest safe change before implementation.
    - related configuration/data/schema/API contracts,
    - framework routes/components affected by the target,
    - active language/framework adapter guidance,
+   - effective architecture profile/pattern,
+   - clean-code and dependency rules from the architecture policy,
    - related tests,
    - project commands that can verify the change.
-6. Run impact analysis:
+7. Run impact analysis:
 
    ```bash
    python .vibe/tools/vibe.py impact <target-file> [<target-file> ...]
    ```
 
-7. For a bug:
+8. For a bug:
    - reproduce the symptom using an existing test/command when possible,
    - trace the execution path,
    - identify the root cause from evidence,
    - specify the regression test to add during build.
-8. For a change:
+9. For a change:
    - describe current behavior,
    - describe desired behavior,
    - identify compatibility requirements.
-9. For a refactor:
+10. For a refactor:
    - record invariants that must remain unchanged,
    - capture baseline tests/behavior before editing.
-10. Write the implementation plan to the current task's `plan.md` when task storage is available.
+11. Write the implementation plan to the current task's `plan.md` when task storage is available.
 
 ## Plan output
 
