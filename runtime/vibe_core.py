@@ -609,7 +609,11 @@ def project_context(root: Path, force: bool = False) -> Dict[str, object]:
             "module_style": architecture.get("module_style"),
         },
         "active_adapter": {
-            "language": (adapter.get("language") or {}).get("id"),
+            "primary": (adapter.get("primary_language") or adapter.get("language") or {}).get("id"),
+            "languages": [
+                item.get("id") for item in (adapter.get("languages") or [])
+                if isinstance(item, dict)
+            ],
             "frameworks": [
                 item.get("id") for item in (adapter.get("frameworks") or [])
                 if isinstance(item, dict)
@@ -1085,9 +1089,15 @@ def _dependency_payload(
         "dependencies": {key: sorted(values) for key, values in sorted(adjacency.items())},
         "reverse_dependencies": {key: sorted(values) for key, values in sorted(reverse.items())},
         "cycles": strongly_connected_components(nodes, edges),
+        "authority": {
+            "level": "advisory",
+            "model": "static-best-effort",
+            "note": "Use this graph to guide retrieval and impact analysis, not as proof that no runtime dependency exists.",
+        },
         "limitations": [
-            "Static baseline only: dynamic imports, runtime dependency injection, reflection, generated code, framework registries, macros, and non-relative JS/TS aliases may require native analyzers.",
-            "Python/JavaScript/TypeScript refresh changed files, or the affected language slice when source paths are added, removed, or renamed; PHP/Java/Kotlin/Go/Rust/Ruby refresh the affected language slice when those files or their module manifest change.",
+            "Static baseline only: dynamic imports, runtime dependency injection, reflection, generated code, framework registries, macros, Rails/WordPress runtime registration, and other framework magic may require native analyzers or tests.",
+            "JavaScript/TypeScript resolves relative imports, tsconfig/jsconfig path aliases, @/ source aliases, and local workspace package exports when statically discoverable; runtime/bundler-only aliases can still require native tooling.",
+            "Python/JavaScript/TypeScript refresh changed files, or the affected language slice when source paths/resolution manifests change; PHP/Java/Kotlin/Go/Rust/Ruby refresh the affected language slice when those files or their module manifest change.",
         ],
         "primary_language": stack.get("primary"),
         "cache": cache_meta,
@@ -1174,6 +1184,17 @@ def dependency_graph(root: Path, force: bool = False) -> Dict[str, object]:
             new_paths = {path for path in current_sources if Path(path).suffix.lower() in extensions}
             if old_paths != new_paths:
                 rescan_sources.update(new_paths)
+
+        js_resolution_manifest_changed = any(
+            Path(path).name == "package.json"
+            or Path(path).name == "jsconfig.json"
+            or (Path(path).name.startswith("tsconfig") and Path(path).suffix.lower() == ".json")
+            for path in changed
+        )
+        if js_resolution_manifest_changed:
+            rescan_sources.update(
+                path for path in current_sources if Path(path).suffix.lower() in js_ext
+            )
 
         edges = {
             (source, target) for source, target in edges
@@ -1471,6 +1492,7 @@ def relevant_context(
         "test_files": related_tests,
         "related_modules": modules,
         "dependency_depth": depth,
+        "dependency_authority": graph.get("authority"),
         "limits": {
             "max_source_files": max_source,
             "max_test_files": max_tests,
@@ -1548,6 +1570,7 @@ def impact_analysis(root: Path, targets: Optional[Sequence[str]] = None) -> Dict
         "affected_tests": sorted(set(tests)),
         "affected_routes": affected_routes,
         "frameworks": framework_map.get("frameworks", []) if isinstance(framework_map, dict) else [],
+        "dependency_authority": graph.get("authority"),
         "depth": depth,
     }
     json_dump(runtime_dir(root) / "impact.json", data)
@@ -1686,25 +1709,22 @@ def dependency_diff(root: Path) -> Dict[str, object]:
 
 
 def verification_fingerprint(root: Path) -> str:
-    """Bind evidence to file contents, even outside Git or with a clean index."""
+    """Bind evidence to file contents while reusing persistent hashes for unchanged files."""
     config = load_config(root)
-    files = {path.relative_to(root).as_posix(): path for path in iter_files(
-        root, max_files=int(config["context"].get("max_files", 20000))
-    )}
+    relative_files = [
+        path.relative_to(root).as_posix()
+        for path in iter_files(root, max_files=int(config["context"].get("max_files", 20000)))
+    ]
     control = config_path(root)
-    if control.is_file():
-        files[control.relative_to(root).as_posix()] = control
+    extra_files = [control.relative_to(root).as_posix()] if control.is_file() else []
+    hashes = content_hash_index(root, relative_files, extra_files=extra_files)
     digest = hashlib.sha256()
-    for relative, path in sorted(files.items()):
+    for relative, content_hash in sorted(hashes.items()):
         digest.update(relative.encode("utf-8") + b"\0")
         try:
-            content_hash = hashlib.sha256()
-            with path.open("rb") as handle:
-                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                    content_hash.update(chunk)
-            digest.update(content_hash.digest())
-        except OSError as exc:
-            raise RuntimeError("Cannot fingerprint verification input: {}".format(relative)) from exc
+            digest.update(bytes.fromhex(content_hash))
+        except ValueError as exc:
+            raise RuntimeError("Invalid cached verification hash: {}".format(relative)) from exc
     return digest.hexdigest()
 
 
