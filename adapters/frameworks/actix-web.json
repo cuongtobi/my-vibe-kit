@@ -1,0 +1,9 @@
+{
+  "id": "actix-web",
+  "kind": "framework",
+  "language": "rust",
+  "detect": ["Cargo dependency actix-web"],
+  "context": ["route-macros", "services", "extractors", "application-state"],
+  "architecture_hints": ["track shared application state and extractor dependencies", "keep transport types separated from domain logic when practical"],
+  "verification": ["cargo check", "cargo test", "cargo clippy"]
+}
