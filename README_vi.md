@@ -413,7 +413,7 @@ Repo 5.000 file không đồng nghĩa model phải đọc 5.000 file.
 
 ## Config mặc định cho project cá nhân
 
-Config kiểu v0.4 mặc định được giữ đơn giản:
+Config v0.7 mặc định được giữ đơn giản:
 
 ```json
 {
