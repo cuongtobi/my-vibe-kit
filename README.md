@@ -44,7 +44,7 @@ vibe
   -> verify: dependency diff + lint/type/test/build + diff review
 ```
 
-Các file context/dependency được lưu dưới `.vibe/`, không phụ thuộc vào việc chat đã dài bao nhiêu. Với bug, workflow bắt buộc ưu tiên:
+Context/dependency được lưu bền vững dưới `.vibe/state/` và được tái sử dụng giữa các session. Session mới không mặc định quét lại toàn bộ repo: runtime kiểm tra Git state, dùng cache khi repo không đổi, hoặc refresh theo delta khi chỉ một số file thay đổi. Chỉ context liên quan bị đưa vào model. Với bug, workflow bắt buộc ưu tiên:
 
 ```text
 reproduce -> root cause -> regression test fail -> minimal fix -> regression test pass -> verify
@@ -57,7 +57,9 @@ Nếu project chưa có test/lint/typecheck command phù hợp, hãy sửa `.vib
 - One personal workflow across Codex, Claude Code, and Antigravity.
 - Works from native/desktop agent surfaces where filesystem skills are supported and from CLI/IDE agents.
 - File-based context instead of relying on chat history.
-- Deterministic dependency/context scans before agent reasoning.
+- Persistent JSON context/dependency cache across sessions.
+- Git-aware incremental refresh instead of full repository rescans on every task.
+- Bounded relevant-context retrieval before agent reasoning.
 - Explicit change modes: `feature`, `change`, `bug_fix`, `refactor`, `hotfix`.
 - Minimal-change implementation by default.
 - Runtime verification evidence before completion.
@@ -203,28 +205,30 @@ User request
   vibe
     |
     +--> plan
-    |     +--> load project rules
-    |     +--> detect stack
-    |     +--> build project context
-    |     +--> build dependency graph
+    |     +--> load AGENTS.md + config
+    |     +--> validate persistent state
+    |     +--> CACHE_HIT / INCREMENTAL_REFRESH / FULL_REBUILD
+    |     +--> materialize current context + dependency graph
+    |     +--> build bounded relevant-context.json
     |     +--> impact analysis
     |     +--> write task plan
     |
     +--> build
+    |     +--> read current task only
+    |     +--> read bounded relevant source/tests
     |     +--> smallest correct change
     |     +--> tests/regression test
-    |     +--> affected checks
     |
     +--> verify
-          +--> dependency graph after
-          +--> dependency diff
+          +--> refresh cached context/dependencies
+          +--> dependency snapshot after + diff
           +--> cycles/architecture checks
           +--> configured lint/type/test/build commands
           +--> git diff review
           +--> verification.json
 ```
 
-The agent skills contain methodology. The scripts under `.vibe/tools/` produce deterministic repository facts.
+The agent skills contain methodology. The scripts under `.vibe/tools/` produce deterministic repository facts. The persistent cache is an optimization only; it never turns into verification evidence by itself.
 
 ## Repository layout
 
@@ -243,7 +247,8 @@ my-vibe-kit/
 │   ├── vibe.py
 │   ├── vibe_core.py
 │   ├── vibe_stacks.py
-│   └── vibe_architecture.py
+│   ├── vibe_architecture.py
+│   └── vibe_state.py
 ├── adapters/
 │   ├── languages/
 │   │   ├── python.json
@@ -303,9 +308,11 @@ your-project/
     │   ├── vibe.py
     │   ├── vibe_core.py
     │   ├── vibe_stacks.py
-    │   └── vibe_architecture.py
-    ├── runtime/            # regenerated; ignored by .vibe/.gitignore
-    └── tasks/              # task records; keep or archive as you prefer
+    │   ├── vibe_architecture.py
+    │   └── vibe_state.py
+    ├── state/              # persistent local cache; ignored by .vibe/.gitignore
+    ├── runtime/            # current-task materialization; ignored by .vibe/.gitignore
+    └── tasks/              # cold task history; not auto-loaded
 ```
 
 ## Requirements
@@ -496,7 +503,33 @@ After installing, open:
 .vibe/config.json
 ```
 
-The installer detects the repository language/framework stack, seeds the architecture policy, and discovers verification commands when it can do so safely. It also copies the language/framework adapter catalog into `.vibe/adapters/`.
+The installer detects the repository language/framework stack, seeds the architecture policy and persistent-context policy, and discovers verification commands when it can do so safely. It also copies the language/framework adapter catalog into `.vibe/adapters/`.
+
+The default context configuration for personal projects is:
+
+```json
+{
+  "context": {
+    "strategy": "persistent-incremental",
+    "max_dependency_depth": 2,
+    "max_files": 20000,
+    "max_source_files": 20,
+    "max_test_files": 10,
+    "max_related_modules": 8
+  },
+  "index": {
+    "backend": "json",
+    "use_git_delta": true,
+    "full_rebuild_on_schema_change": true
+  },
+  "tasks": {
+    "keep_history": true,
+    "auto_load_history": false
+  }
+}
+```
+
+The default stays intentionally simple: JSON cache + Git delta, no SQLite and no mandatory semantic index.
 
 Examples of automatically discovered gates include:
 
@@ -567,14 +600,14 @@ Use plan to analyze adding OAuth login. Do not modify code.
 
 The plan skill:
 
-1. Reads `AGENTS.md` and relevant repository instructions.
-2. Starts/updates a task record.
-3. Runs stack/context scan.
-4. Resolves language/framework adapters and architecture policy.
-5. Runs dependency scan.
-6. Finds reverse dependencies, framework routes/components, and likely tests.
-7. Writes impact analysis.
-8. Produces an implementation plan.
+1. Reads `AGENTS.md` and `.vibe/config.json`.
+2. Starts the current task record.
+3. Runs `context`, which reuses or incrementally refreshes persistent context and materializes framework/adapter/architecture facts.
+4. Runs `deps`, which reuses or incrementally refreshes the dependency graph.
+5. Runs `relevant` to produce a bounded list of source files, tests, modules, dependencies, and consumers for this task.
+6. Reads only that bounded context first and expands selectively when evidence requires it.
+7. Runs impact analysis for the identified target files.
+8. Produces the implementation plan and verification strategy.
 
 ### 3. Build from an existing plan
 
@@ -590,7 +623,7 @@ Build follows the current task artifacts and does not expand scope silently.
 Use verify on the current change.
 ```
 
-Verify rebuilds dependency facts, compares snapshots, runs configured commands, and records evidence.
+Verify refreshes dependency/context facts through the same cache/delta engine, compares snapshots, runs configured commands, and records evidence. A cache hit does not skip the configured verification commands.
 
 ## Change modes
 
@@ -671,50 +704,113 @@ Hotfixes deliberately minimize scope:
 
 ## Runtime context
 
-The kit does not treat a long chat as the source of truth.
+The kit does not treat chat history or old task folders as the source of truth. It separates durable rules, persistent machine cache, current-task materialization, and cold task history.
 
-It uses three context layers.
+### Durable project truth
 
-### Persistent project context
-
-Committed files such as:
+Committed project information remains authoritative:
 
 ```text
 AGENTS.md
-architecture docs
+.vibe/config.json
 source code
 tests
 package manifests
-.vibe/config.json
+architecture docs
 ```
 
-### Derived context
+### Persistent state across sessions
 
-Regenerated under:
+Reusable local state lives in:
+
+```text
+.vibe/state/
+├── index-state.json
+├── file-index.json
+├── last-context.json
+├── last-dependency.json
+├── last-framework.json
+├── last-adapter.json
+└── last-architecture.json
+```
+
+`.vibe/state/` is ignored by `.vibe/.gitignore`. It is a local performance cache, not project truth and not verification evidence.
+
+`index-state.json` records the cache schema/scanner version plus the Git repository state associated with each cached artifact. For a clean repository, the Git commit is enough. For dirty or untracked application files, the runtime hashes only those changed files, not the entire repository.
+
+### Cache modes
+
+Every `context` and `deps` request resolves to one of three modes:
+
+```text
+CACHE_HIT
+    repo state unchanged
+    -> reuse last context/dependency directly
+
+INCREMENTAL_REFRESH
+    Git delta detected
+    -> update changed files / affected language slice only
+
+FULL_REBUILD
+    first run, cache missing/invalid, Git delta unavailable,
+    forced rebuild, or cache schema/scanner incompatibility
+```
+
+A cache hit saves scanning work. It does **not** mean the code is correct or verified.
+
+### Incremental behavior by language
+
+The zero-dependency baseline currently refreshes:
+
+- Python: changed source files only, using the cached/current Python path universe to resolve local imports.
+- JavaScript/TypeScript: changed source files only for relative imports.
+- PHP: the PHP language slice when PHP files or Composer manifests relevant to the slice change.
+- Java/Kotlin: the JVM source slice when JVM files or Maven/Gradle manifests change.
+- Go: the Go slice when Go files or `go.mod` changes.
+- Rust: the Rust slice when Rust files or `Cargo.toml` changes.
+
+This keeps the implementation reliable without introducing a database/index service for a personal-project kit.
+
+### Current task runtime
+
+Regenerated/materialized current-task facts live under:
 
 ```text
 .vibe/runtime/
+├── current-task.json
 ├── project-map.json
 ├── framework-map.json
 ├── active-adapter.json
 ├── architecture-policy.json
 ├── dependency-map.json
+├── relevant-context.json
 ├── impact.json
 ├── dependency-diff.json
 └── verification.json
 ```
 
-This directory is ignored by `.vibe/.gitignore`.
+`relevant-context.json` is deliberately small. By default the first retrieval is capped at:
 
-### Task context
+- 20 source files,
+- 10 test files,
+- 8 related modules,
+- dependency depth 2.
 
-Each task gets a record:
+The agent should read these files first and expand progressively only when a concrete dependency, consumer, contract, or failing test requires more context. The full dependency graph may exist on disk, but it should not be pasted into model context.
+
+### Task history is cold storage
+
+Each task may keep an audit record:
 
 ```text
 .vibe/tasks/<task-id>/
 ├── request.md
 ├── task.json
 ├── context.json
+├── framework.json
+├── active-adapter.json
+├── architecture-policy.json
+├── relevant-context.json
 ├── impact.json
 ├── plan.md
 ├── dependency-before.json
@@ -723,9 +819,41 @@ Each task gets a record:
 └── verification.json
 ```
 
-Not every file must exist for every tiny task. The skills create only what is useful.
+The default is:
 
-Task history is intentionally not ignored by default. You can commit it for architectural traceability or archive/delete it after merge.
+```json
+{
+  "tasks": {
+    "keep_history": true,
+    "auto_load_history": false
+  }
+}
+```
+
+The agent must **not** enumerate or read every old task at the start of a new session. Historical tasks are loaded only when the user explicitly refers to one or when current evidence makes a specific old task materially relevant. Current source/tests/config always outrank historical task artifacts.
+
+### Why this is token-efficient
+
+Repository scanning and graph maintenance happen in deterministic Python code. The model sees only the bounded relevant neighborhood.
+
+Conceptually:
+
+```text
+large repository
+      ↓
+persistent local index/cache
+      ↓
+Git delta
+      ↓
+relevant subgraph
+      ↓
+<= bounded source/tests
+      ↓
+LLM
+```
+
+A 5,000-file personal project therefore does not imply a 5,000-file model context.
+
 
 ## Runtime CLI
 
@@ -738,15 +866,20 @@ python .vibe/tools/vibe.py context
 python .vibe/tools/vibe.py adapter
 python .vibe/tools/vibe.py framework
 python .vibe/tools/vibe.py architecture
+python .vibe/tools/vibe.py state
 python .vibe/tools/vibe.py deps
+python .vibe/tools/vibe.py relevant
+python .vibe/tools/vibe.py relevant src/orders/service.py
+python .vibe/tools/vibe.py relevant --query "fix order cancellation"
 python .vibe/tools/vibe.py impact
 python .vibe/tools/vibe.py snapshot before
 python .vibe/tools/vibe.py snapshot after
 python .vibe/tools/vibe.py verify
 python .vibe/tools/vibe.py status
+python .vibe/tools/vibe.py rebuild
 ```
 
-The skills call these commands when appropriate. You can also run them manually when debugging the workflow.
+The skills call these commands when appropriate. `state` shows whether context/dependencies will be reused or refreshed. `relevant` builds bounded task context without loading the whole repository. `rebuild` intentionally discards the reuse path for that run and performs a full context/dependency rebuild; use it for troubleshooting or after major structural changes.
 
 ## Dependency analysis
 
@@ -760,7 +893,9 @@ The built-in scanner is intentionally dependency-free and acts as a baseline:
 - Rust: module declarations and `crate::` use relationships.
 - Generic projects: file/project map when a language-specific graph is unavailable.
 
-Framework context is also generated into `.vibe/runtime/framework-map.json`, while the merged stack adapter is stored in `.vibe/runtime/active-adapter.json`.
+Framework context is materialized into `.vibe/runtime/framework-map.json`, while the merged stack adapter is stored in `.vibe/runtime/active-adapter.json`. Their reusable copies live under `.vibe/state/`.
+
+The dependency graph is cached across sessions. On unchanged Git state it is reused directly. On ordinary edits it is updated incrementally as described above. Native analyzers remain authoritative when configured.
 
 For larger projects, use stronger native tooling too.
 
@@ -903,6 +1038,8 @@ Apply managed updates:
 python install.py --target /path/to/project --agents all --force
 ```
 
+`--force` refreshes managed runtime/skills but intentionally preserves an existing project-owned `.vibe/config.json`. If upgrading an older installation to v0.4, compare your config with `vibe.config.example.json` and add the new `context`, `index`, and `tasks.auto_load_history` settings you want. The runtime also supplies safe defaults when those keys are absent.
+
 Review the target repository diff before committing.
 
 ## Safe installation behavior
@@ -990,23 +1127,45 @@ Document critical runtime relationships in `AGENTS.md` or architecture docs and 
 
 ### A large repository creates too much context
 
-The runtime stores the full machine-readable map on disk, but the skill should summarize only the relevant neighborhood:
+Run:
 
-- target files
-- direct dependencies
-- reverse dependencies
-- bounded transitive dependencies
-- affected tests
+```bash
+python .vibe/tools/vibe.py state
+python .vibe/tools/vibe.py relevant
+```
 
-Do not paste the entire dependency graph into the model context.
+Check the configured limits in `.vibe/config.json`. The default first-pass retrieval is 20 source files, 10 tests, 8 modules, dependency depth 2. Increase these only when the repository genuinely needs a wider neighborhood.
+
+Do not paste `last-dependency.json` or the entire dependency graph into model context.
+
+### Cache looks stale or repository structure changed heavily
+
+Inspect:
+
+```bash
+python .vibe/tools/vibe.py state
+```
+
+Then force a deterministic rebuild:
+
+```bash
+python .vibe/tools/vibe.py rebuild
+```
+
+A rebuild is also appropriate after a large rename/restructure or when you deliberately want to discard cached state.
+
+### Why not SQLite?
+
+For the intended personal-project use case, v0.4 uses JSON state plus Git delta. It is easier to inspect, delete, debug, and migrate. SQLite/symbol-level indexing should be added only if real projects demonstrate that JSON load time or file-level retrieval has become a bottleneck.
 
 ## Philosophy
 
 ```text
 LLM       -> reasoning and implementation
 Scripts   -> deterministic repository facts
+State     -> reusable local cache, never truth by itself
 Tests     -> behavioral truth
-Git       -> history and rollback
+Git       -> history, delta detection, and rollback
 Skills    -> reusable workflow
 AGENTS.md -> durable project rules
 ```
