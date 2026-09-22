@@ -1,9 +1,0 @@
-{
-  "name": "generic",
-  "markers": [],
-  "dependency": {
-    "baseline": "project-map",
-    "recommended": ["language-native-static-analysis"]
-  },
-  "verification_recommended": ["project-native-lint", "project-native-test", "project-native-build"]
-}
