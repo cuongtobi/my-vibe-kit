@@ -1,0 +1,9 @@
+{
+  "id": "nestjs",
+  "kind": "framework",
+  "language": "typescript",
+  "detect": ["package dependency @nestjs/core"],
+  "context": ["controllers", "providers", "modules", "guards", "interceptors"],
+  "architecture_hints": ["track provider/module injection boundaries", "treat guards/interceptors as request-path dependencies"],
+  "verification": ["package lint", "package typecheck", "package test", "package build"]
+}
