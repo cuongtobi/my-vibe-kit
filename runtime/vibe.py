@@ -17,6 +17,7 @@ from vibe_core import (
     status,
     verify,
 )
+from vibe_architecture import architecture_policy
 from vibe_stacks import effective_adapter, framework_context
 
 
@@ -38,6 +39,7 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("deps", help="Build .vibe/runtime/dependency-map.json.")
     sub.add_parser("framework", help="Build framework-aware route/component context.")
     sub.add_parser("adapter", help="Resolve the active language + framework adapters.")
+    sub.add_parser("architecture", help="Resolve the effective architecture profile and clean-code policy.")
 
     impact = sub.add_parser("impact", help="Compute reverse dependency and test impact.")
     impact.add_argument("files", nargs="*", help="Target files. Defaults to changed git files.")
@@ -88,6 +90,9 @@ def main() -> int:
         return 0
     if args.command == "adapter":
         emit(effective_adapter(repo))
+        return 0
+    if args.command == "architecture":
+        emit(architecture_policy(repo))
         return 0
     if args.command == "impact":
         emit(impact_analysis(repo, args.files or None))
