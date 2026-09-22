@@ -98,8 +98,8 @@ Workflow độc lập ngôn ngữ. Runtime có stack adapter và dependency scan
 | Ngôn ngữ | Dependency scan baseline | Framework adapter |
 | --- | --- | --- |
 | Python | AST import graph | Flask, FastAPI, Django |
-| JavaScript | relative import/require graph | Express, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
-| TypeScript | relative import graph | Express, NestJS, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
+| JavaScript | relative + alias tsconfig/jsconfig + local workspace import graph | Express, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
+| TypeScript | relative + alias tsconfig/jsconfig + local workspace import graph | Express, NestJS, React, Vue, Nuxt, Svelte, SvelteKit, Vite, Next.js |
 | PHP | namespace/use + literal require/include graph | Laravel, WordPress |
 | Java/Kotlin | package/import graph | Spring |
 | Go | module-local import graph | Gin, Fiber |
@@ -112,7 +112,7 @@ Framework adapter bổ sung context như route, component, controller, model, pr
 Runtime resolve:
 
 ```text
-detected language
+detected languages + primary language
        +
 detected framework(s)
        ↓
@@ -121,7 +121,7 @@ active-adapter.json
 plan / impact / build / verify
 ```
 
-Vì vậy 4 skill cốt lõi không cần tạo bản riêng cho Flask/Laravel/Rails/React/WordPress...
+`active-adapter.json` expose toàn bộ language adapter đã detect cùng `primary_language`; field `language` đơn vẫn được giữ tạm như compatibility alias cho consumer cũ. Vì vậy 4 skill cốt lõi không cần tạo bản riêng cho Flask/Laravel/Rails/React/WordPress...
 
 Với frontend, adapter có thể merge nhiều lớp. Project TypeScript + React + Vite có thể active cả ba; project Next.js có thể active Next.js + React nhưng architecture guidance ưu tiên meta-framework. Tương tự Nuxt được ưu tiên hơn Vue và SvelteKit ưu tiên hơn Svelte. Vite chỉ là tooling adapter, không quyết định application architecture.
 
@@ -260,7 +260,8 @@ State local tái sử dụng nằm tại:
 ├── last-dependency.json
 ├── last-framework.json
 ├── last-adapter.json
-└── last-architecture.json
+├── last-architecture.json
+└── content-hashes.json
 ```
 
 `.vibe/state/` được ignore bởi `.vibe/.gitignore`.
@@ -268,6 +269,8 @@ State local tái sử dụng nằm tại:
 Đây chỉ là performance cache, không phải project truth và không phải verification evidence.
 
 `index-state.json` lưu version schema/scanner, checksum SHA-256 của artifact và Git repository state tương ứng với cache. Toàn bộ context bundle (file index, context, framework, adapter, architecture) và dependency cache được kiểm tra trước khi tái sử dụng hoặc refresh incremental. Artifact thiếu, hỏng hoặc không nhất quán sẽ kích hoạt full rebuild; repository rỗng hợp lệ vẫn được cache.
+
+`file-index.json` đồng thời lưu search index có giới hạn cho source: symbol đã phát hiện và các identifier/content term có tín hiệu cao của từng file. Khi refresh incremental, chỉ file thay đổi mới phải index lại. `content-hashes.json` lưu riêng content hash phục vụ verification để fingerprint lặp lại có thể dùng lại hash của file không đổi thay vì mở và hash lại toàn bộ source.
 
 Để xác định cache còn hợp lệ, runtime dùng Git HEAD, hash của file dirty/untracked và hash cấu hình runtime. Đường dẫn Git được đọc bằng output phân cách NUL để giữ đúng Unicode, khoảng trắng và rename. Repository Git index file tracked và file untracked không bị ignore, trong giới hạn file và quy tắc loại trừ thư mục của kit. File generated bị ignore không vào graph trừ khi đã tracked; ngoài Git, scanner filesystem vẫn hoạt động và refresh đầy đủ.
 
@@ -300,7 +303,7 @@ Trước khi dùng lại hoặc cập nhật incremental dependency graph, runti
 Baseline không dependency ngoài hiện hoạt động như sau:
 
 - Python — refresh source file đã thay đổi, dùng universe path Python hiện tại để resolve local import. Khi thêm, xóa hoặc đổi tên source path Python, runtime refresh toàn bộ Python slice để resolve lại import trong cả file không đổi. Scanner ghi nhận mọi local module được import, bao gồm nhiều import trong một câu lệnh và submodule của package.
-- JavaScript/TypeScript — refresh file đã thay đổi cho relative import/export/require; khi thêm, xóa hoặc đổi tên source path JS/TS, runtime refresh toàn bộ JS/TS slice để cập nhật cả importer không đổi và đường dẫn resolve dự phòng.
+- JavaScript/TypeScript — refresh file đã thay đổi cho relative import/export/require, alias `tsconfig`/`jsconfig`, alias `@/` có thể xác định tĩnh và import/export của local workspace package. Khi thêm, xóa/đổi tên source path hoặc thay đổi `package.json`/`tsconfig*`/`jsconfig.json`, runtime refresh toàn bộ JS/TS slice để resolve lại importer không đổi.
 - Vue/Svelte single-file component — vẫn được track như source/context node dù dependency parsing trong embedded script chỉ là best-effort; framework context nhận diện component/route và native tooling vẫn là nguồn chính.
 - PHP — refresh PHP slice khi file PHP hoặc Composer manifest thay đổi.
 - Java/Kotlin — refresh JVM slice khi source JVM hoặc Maven/Gradle manifest thay đổi.
@@ -336,7 +339,7 @@ Giới hạn mặc định cho lần retrieval đầu:
 - 8 module liên quan,
 - dependency depth 2.
 
-Agent đọc neighborhood có giới hạn này trước, sau đó chỉ mở rộng khi dependency, consumer, contract, config hoặc failing test cụ thể yêu cầu thêm context.
+`relevant` xếp hạng target ban đầu từ filename/path cộng persistent symbol/content index, lưu evidence match, rồi mở rộng theo dependency neighborhood có giới hạn. Agent đọc neighborhood này trước, sau đó chỉ mở rộng khi dependency, consumer, dynamic/framework relationship, contract, config hoặc failing test cụ thể yêu cầu thêm context.
 
 Full dependency graph có thể nằm trên disk nhưng không nên paste toàn bộ vào model context.
 
@@ -705,7 +708,7 @@ Verification summary có trường `dependency_comparison_available`; khi là fa
 Baseline built-in không yêu cầu dependency ngoài:
 
 - Python — AST local import graph.
-- JavaScript/TypeScript — relative import/export/require graph.
+- JavaScript/TypeScript — relative import cộng alias path `tsconfig`/`jsconfig`, alias source `@/` có thể xác định tĩnh và local workspace package import/export.
 - PHP — namespace/use cộng literal require/include.
 - Java/Kotlin — package/import relationship.
 - Go — local module import relationship.
@@ -714,9 +717,11 @@ Baseline built-in không yêu cầu dependency ngoài:
 
 Framework context được materialize vào `.vibe/runtime/framework-map.json`.
 
-Language/framework adapter đã merge được materialize vào `.vibe/runtime/active-adapter.json`.
+Toàn bộ language adapter đã detect, primary language adapter và framework adapter được materialize vào `.vibe/runtime/active-adapter.json`.
 
 Bản reusable nằm dưới `.vibe/state/`.
+
+Built-in dependency graph khai báo `authority.level = advisory` và `model = static-best-effort`. Graph dùng để thu hẹp retrieval/impact, không phải bằng chứng rằng không còn runtime dependency nào khác. Dynamic import, DI container, generated code/route, framework registry, runtime wiring của Rails/WordPress, macro hoặc alias chỉ tồn tại ở bundler vẫn cần native analyzer, test hoặc kiểm tra trực tiếp khi có liên quan.
 
 ### Tool native khuyến nghị
 
@@ -815,7 +820,7 @@ Cache hit không bao giờ đủ để làm bằng chứng cho `PASS_VERIFIED`.
 
 Verification chạy các command đã cấu hình trước khi chụp dependency graph cuối cùng và snapshot after. Fingerprint đầu vào trước/sau mỗi command được ghi lại. Nếu command thay đổi file được index hoặc cấu hình runtime, kết quả là `FAIL_VERIFICATION` với `rerun_required: true` và `rerun_commands` liệt kê toàn bộ kiểm tra đã cấu hình. Review thay đổi cuối cùng rồi chạy lại các kiểm tra đó; muốn pass thì đầu vào phải ổn định. Đặt output tạm của command trong thư mục bị ignore để không coi đó là đầu vào verification.
 
-`verification.json` có `task_id` và `source_fingerprint` (SHA-256 của đường dẫn/nội dung file được index và cấu hình runtime, trong giới hạn file đã cấu hình). `status.verification_current` đối chiếu cả hai với task và file hiện tại; trường này cho biết report còn hiện hành, không đồng nghĩa đã pass. Verify summary cũng có các định danh này và `rerun_required`. Executable được resolve qua PATH/PATHEXT trước khi chạy, bao gồm package-manager shim `.CMD` trên Windows, không bật `shell=True`. CI bao phủ Linux và Windows.
+`verification.json` có `task_id` và `source_fingerprint` (SHA-256 của đường dẫn/nội dung file được index và cấu hình runtime, trong giới hạn file đã cấu hình). Fingerprint đầu tiên tạo `content-hashes.json`; các fingerprint sau dùng repository delta để chỉ hash lại file mới/thay đổi và tái sử dụng hash của file không đổi. `status.verification_current` đối chiếu fingerprint và task identity; trường này cho biết report còn hiện hành, không đồng nghĩa đã pass. Verify summary cũng có các định danh này và `rerun_required`. Executable được resolve qua PATH/PATHEXT trước khi chạy, bao gồm package-manager shim `.CMD` trên Windows, không bật `shell=True`. CI bao phủ Linux và Windows.
 
 Danh sách command rỗng trả về `NEEDS_VERIFICATION_CONFIG` (CLI exit code `3`), kể cả khi `verification.require_commands` là `false`. Setting này không cho phép bỏ qua yêu cầu thực sự chạy kiểm tra trước khi báo `PASS_VERIFIED`.
 
