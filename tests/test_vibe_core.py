@@ -556,7 +556,7 @@ class VibeCoreTests(unittest.TestCase):
         package = root / "packages" / "ui"
         (package / "src").mkdir(parents=True)
         (package / "package.json").write_text(
-            json.dumps({"name": "@acme/ui", "exports": ".\/src\/a.ts".replace("\\/", "/")}),
+            json.dumps({"name": "@acme/ui", "exports": "./src/a.ts"}),
             encoding="utf-8",
         )
         (package / "src" / "a.ts").write_text("export const value = 'a'\n", encoding="utf-8")
