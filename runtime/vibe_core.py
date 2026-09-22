@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import time
 import uuid
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -23,6 +23,7 @@ from vibe_stacks import (
 )
 from vibe_state import (
     cache_status,
+    content_hash_index,
     current_repo_state,
     load_cache,
     repository_files,
@@ -286,6 +287,89 @@ MANIFEST_NAMES = {
 }
 
 
+SEARCH_TEXT_LIMIT = 262144
+SEARCH_TERM_LIMIT = 128
+SEARCH_SYMBOL_LIMIT = 64
+SEARCH_STOP_WORDS = {
+    "and", "async", "await", "bool", "break", "case", "catch", "class", "const",
+    "continue", "def", "default", "delete", "do", "else", "enum", "export", "extends",
+    "false", "finally", "float", "for", "from", "func", "function", "if", "implements",
+    "import", "in", "instanceof", "int", "interface", "let", "match", "module", "new",
+    "none", "null", "package", "pass", "private", "protected", "public", "raise", "return",
+    "self", "static", "str", "struct", "super", "switch", "this", "throw", "trait", "true",
+    "try", "type", "use", "var", "void", "while", "with", "yield",
+}
+
+
+def _identifier_parts(value: str) -> List[str]:
+    out = []
+    for raw in re.split(r"[^A-Za-z0-9]+|_+", value):
+        if not raw:
+            continue
+        pieces = re.findall(r"[A-Z]+(?=[A-Z][a-z]|\b)|[A-Z]?[a-z]+|[0-9]+", raw)
+        values = pieces or [raw]
+        lowered_raw = raw.lower()
+        if len(lowered_raw) >= 3:
+            out.append(lowered_raw)
+        for piece in values:
+            piece = piece.lower()
+            if len(piece) >= 3:
+                out.append(piece)
+    return out
+
+
+def _search_tokens_from_text(text: str) -> List[str]:
+    counts = Counter()
+    for identifier in re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", text):
+        for token in _identifier_parts(identifier):
+            if token not in SEARCH_STOP_WORDS:
+                counts[token] += 1
+    return [
+        token for token, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:SEARCH_TERM_LIMIT]
+    ]
+
+
+def _source_symbols(path: Path, text: str) -> List[str]:
+    symbols = []
+    if path.suffix.lower() == ".py":
+        try:
+            tree = ast.parse(text, filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    symbols.append(node.name)
+        except SyntaxError:
+            pass
+    else:
+        patterns = [
+            r"\b(?:class|interface|trait|enum|struct|module|type)\s+([A-Za-z_][A-Za-z0-9_]*)",
+            r"\b(?:def|fn|func|function)\s+([A-Za-z_][A-Za-z0-9_!?=]*)",
+            r"\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:=|:)",
+        ]
+        for pattern in patterns:
+            symbols.extend(re.findall(pattern, text))
+    unique = []
+    seen = set()
+    for symbol in symbols:
+        if symbol not in seen:
+            seen.add(symbol)
+            unique.append(symbol)
+        if len(unique) >= SEARCH_SYMBOL_LIMIT:
+            break
+    return unique
+
+
+def _source_search_metadata(path: Path) -> Dict[str, object]:
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            text = handle.read(SEARCH_TEXT_LIMIT)
+    except OSError:
+        return {"symbols": [], "search_terms": []}
+    return {
+        "symbols": _source_symbols(path, text),
+        "search_terms": _search_tokens_from_text(text),
+    }
+
+
 def _file_record(root: Path, path: Path) -> Optional[Dict[str, object]]:
     try:
         rel = path.relative_to(root)
@@ -294,13 +378,17 @@ def _file_record(root: Path, path: Path) -> Optional[Dict[str, object]]:
     if path.is_symlink() or ignored(path, root) or not path.exists() or not path.is_file():
         return None
     suffix = path.suffix.lower()
-    return {
+    source = suffix in SOURCE_EXTENSIONS
+    record = {
         "path": rel.as_posix(),
         "extension": suffix,
-        "source": suffix in SOURCE_EXTENSIONS,
-        "test": suffix in SOURCE_EXTENSIONS and is_test_file(rel),
+        "source": source,
+        "test": source and is_test_file(rel),
         "manifest": path.name in MANIFEST_NAMES or path.suffix.lower() == ".gemspec",
     }
+    if source:
+        record.update(_source_search_metadata(path))
+    return record
 
 
 def _full_file_index(root: Path, max_files: int) -> Dict[str, Dict[str, object]]:
