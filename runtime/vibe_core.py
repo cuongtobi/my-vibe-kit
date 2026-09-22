@@ -1108,10 +1108,11 @@ def _query_tokens(value: str) -> List[str]:
         "this", "that", "with", "from", "into", "for", "and", "use", "using",
         "feature", "bug", "project", "task", "new",
     }
-    return [
-        token for token in re.findall(r"[A-Za-z0-9_]+", value.lower())
-        if len(token) >= 3 and token not in stop
-    ]
+    tokens = []
+    for token in _identifier_parts(value):
+        if token not in stop and token not in tokens:
+            tokens.append(token)
+    return tokens
 
 
 def _path_score(path: str, tokens: Sequence[str]) -> int:
@@ -1126,6 +1127,30 @@ def _path_score(path: str, tokens: Sequence[str]) -> int:
         elif token in lowered:
             score += 2
     return score
+
+
+def _indexed_relevance(
+    path: str,
+    record: object,
+    tokens: Sequence[str],
+) -> Dict[str, object]:
+    item = record if isinstance(record, dict) else {}
+    symbols = [str(value) for value in (item.get("symbols") or [])]
+    search_terms = set(str(value) for value in (item.get("search_terms") or []))
+    symbol_parts = set()
+    for symbol in symbols:
+        symbol_parts.update(_identifier_parts(symbol))
+    symbol_matches = sorted(set(tokens) & symbol_parts)
+    content_matches = sorted(set(tokens) & search_terms)
+    path_score = _path_score(path, tokens)
+    score = path_score + (10 * len(symbol_matches)) + (3 * len(content_matches))
+    return {
+        "path": path,
+        "score": score,
+        "path_score": path_score,
+        "symbol_matches": symbol_matches,
+        "content_matches": content_matches,
+    }
 
 
 def relevant_context(
@@ -1149,25 +1174,46 @@ def relevant_context(
         if Path(item).as_posix() in set(nodes)
     ]
 
-    if not selected:
-        selected = [path for path in changed_files(root) if path in set(nodes)]
-
     active_query = query or ""
     task = current_task(root)
     if not active_query and isinstance(task, dict):
         active_query = str(task.get("request") or "")
 
     tokens = _query_tokens(active_query)
+    file_index = load_cache(root, "files", {})
+    if not isinstance(file_index, dict):
+        file_index = {}
+    changed = set(changed_files(root))
+    retrieval = []
+
     if not selected and tokens:
-        ranked = sorted(
-            (
-                (_path_score(path, tokens), path)
-                for path in nodes
-                if path not in test_files
-            ),
-            key=lambda item: (-item[0], item[1]),
-        )
-        selected = [path for score, path in ranked if score > 0][:3]
+        ranked = []
+        for path in nodes:
+            if path in test_files:
+                continue
+            evidence = _indexed_relevance(path, file_index.get(path), tokens)
+            if path in changed:
+                evidence["score"] = int(evidence["score"]) + 1
+                evidence["changed_file_bonus"] = 1
+            if int(evidence["score"]) > 0:
+                ranked.append(evidence)
+        ranked.sort(key=lambda item: (-int(item["score"]), str(item["path"])))
+        retrieval = ranked[:10]
+        selected = [str(item["path"]) for item in ranked[:3]]
+    elif not selected:
+        selected = [path for path in sorted(changed) if path in set(nodes)]
+
+    if targets:
+        retrieval = [
+            {
+                "path": path,
+                "score": None,
+                "reason": "explicit-target",
+                "symbol_matches": [],
+                "content_matches": [],
+            }
+            for path in selected
+        ]
 
     dependencies = graph.get("dependencies") or {}
     reverse = graph.get("reverse_dependencies") or {}
@@ -1207,6 +1253,8 @@ def relevant_context(
         "query": active_query,
         "query_tokens": tokens,
         "targets": selected,
+        "retrieval_mode": "indexed-symbol-content",
+        "retrieval_evidence": retrieval,
         "source_files": source_files,
         "test_files": related_tests,
         "related_modules": modules,
