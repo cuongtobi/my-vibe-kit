@@ -12,11 +12,10 @@ Produce evidence that the change satisfies the request without introducing unexp
 ## Procedure
 
 1. Read the plan/impact record and `AGENTS.md`.
-2. Rebuild deterministic repository facts when the runtime exists:
+2. Refresh deterministic repository facts when the runtime exists. The runtime should reuse persistent state or apply a Git delta when possible; a full rebuild is a fallback, not the default:
 
    ```bash
    python .vibe/tools/vibe.py context
-   python .vibe/tools/vibe.py architecture
    python .vibe/tools/vibe.py deps
    python .vibe/tools/vibe.py snapshot after
    ```
@@ -59,6 +58,12 @@ Produce evidence that the change satisfies the request without introducing unexp
 - `NEEDS_VERIFICATION_CONFIG`: the project requires verification commands but none are configured.
 
 Never translate `NEEDS_VERIFICATION_CONFIG` into success.
+
+## Context constraints
+
+- Verify the current task and current diff; do not load unrelated historical task folders.
+- Cache reuse is an optimization only. Verification status still comes from commands that actually ran.
+- A CACHE_HIT never implies PASS_VERIFIED.
 
 ## Constraints
 
