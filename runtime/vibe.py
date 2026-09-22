@@ -25,6 +25,26 @@ def emit(data: object) -> None:
     print(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True))
 
 
+def output_options(command: argparse.ArgumentParser) -> None:
+    modes = command.add_mutually_exclusive_group()
+    modes.add_argument("--summary", action="store_true", help="Print counts and artifact location only.")
+    modes.add_argument("--quiet", action="store_true", help="Write artifacts without stdout; preserve exit status.")
+
+
+def emit_artifact(data: object, summary: object, args: argparse.Namespace) -> None:
+    if not args.quiet:
+        emit(summary if args.summary else data)
+
+
+def cache_summary(data: dict) -> dict:
+    cache = data.get("cache") or {}
+    return {
+        "mode": cache.get("mode"),
+        "reason": cache.get("reason"),
+        "changed_file_count": len(cache.get("changed_files") or []),
+    }
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description="my-vibe-kit deterministic repository runtime")
     root.add_argument(
@@ -35,8 +55,8 @@ def parser() -> argparse.ArgumentParser:
     sub = root.add_subparsers(dest="command", required=True)
 
     sub.add_parser("detect", help="Detect repository stack.")
-    sub.add_parser("context", help="Build .vibe/runtime/project-map.json.")
-    sub.add_parser("deps", help="Build .vibe/runtime/dependency-map.json.")
+    output_options(sub.add_parser("context", help="Build .vibe/runtime/project-map.json."))
+    output_options(sub.add_parser("deps", help="Build .vibe/runtime/dependency-map.json."))
     sub.add_parser("framework", help="Build framework-aware route/component context.")
     sub.add_parser("adapter", help="Resolve the active language + framework adapters.")
     sub.add_parser("architecture", help="Read the effective cached architecture profile and clean-code policy.")
@@ -65,7 +85,7 @@ def parser() -> argparse.ArgumentParser:
     snapshot = sub.add_parser("snapshot", help="Persist dependency snapshot for current task.")
     snapshot.add_argument("when", choices=("before", "after"))
 
-    sub.add_parser("verify", help="Run deterministic verification and configured project checks.")
+    output_options(sub.add_parser("verify", help="Run deterministic verification and configured project checks."))
     sub.add_parser("status", help="Show current task/runtime status.")
     return root
 
@@ -86,10 +106,24 @@ def main() -> int:
         emit(detect_stack(repo))
         return 0
     if args.command == "context":
-        emit(project_context(repo))
+        data = project_context(repo)
+        emit_artifact(data, {
+            "artifact": ".vibe/runtime/project-map.json",
+            "source_file_count": data["source_file_count"],
+            "test_file_count": len(data.get("test_files") or []),
+            "manifest_count": len(data.get("manifests") or []),
+            "cache": cache_summary(data),
+        }, args)
         return 0
     if args.command == "deps":
-        emit(dependency_graph(repo))
+        data = dependency_graph(repo)
+        emit_artifact(data, {
+            "artifact": ".vibe/runtime/dependency-map.json",
+            "node_count": len(data.get("nodes") or []),
+            "edge_count": len(data.get("edges") or []),
+            "cycle_count": len(data.get("cycles") or []),
+            "cache": cache_summary(data),
+        }, args)
         return 0
     if args.command == "framework":
         project_context(repo)
@@ -130,7 +164,11 @@ def main() -> int:
         emit(start_task(repo, args.mode, request))
         return 0
     if args.command == "snapshot":
-        data = snapshot_dependencies(repo, args.when)
+        try:
+            data = snapshot_dependencies(repo, args.when)
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         emit(
             {
                 "snapshot": args.when,
@@ -141,8 +179,25 @@ def main() -> int:
         )
         return 0
     if args.command == "verify":
-        report = verify(repo)
-        emit(report)
+        try:
+            report = verify(repo)
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        emit_artifact(report, {
+            "artifact": ".vibe/runtime/verification.json",
+            "status": report["status"],
+            "task_id": report["task_id"],
+            "source_fingerprint": report["source_fingerprint"],
+            "rerun_required": report["rerun_required"],
+            "commands_configured": report["commands_configured"],
+            "commands_run": report["commands_run"],
+            "failed_command_count": sum(
+                result.get("returncode") != 0 for result in report["command_results"]
+            ),
+            "dependency_comparison_available": isinstance(report.get("dependency_diff"), dict),
+            "new_cycle_count": len(report.get("new_cycles") or []),
+        }, args)
         if report["status"] == "PASS_VERIFIED":
             return 0
         if report["status"] == "NEEDS_VERIFICATION_CONFIG":
@@ -155,4 +210,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)

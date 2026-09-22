@@ -1,12 +1,14 @@
 """Deterministic repository context, dependency, impact, task, and verification helpers."""
 
 import ast
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
 import time
+import uuid
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +25,7 @@ from vibe_state import (
     cache_status,
     current_repo_state,
     load_cache,
+    repository_files,
     state_summary as persistent_state_summary,
     write_cache,
 )
@@ -93,7 +96,7 @@ def json_dump(path: Path, data: object) -> None:
 def json_load(path: Path, default: object = None) -> object:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return default
 
 
@@ -105,9 +108,15 @@ def run_process(
     max_output: int = 20000,
 ) -> Dict[str, object]:
     started = time.monotonic()
+    resolved_command = list(command)
+    if resolved_command:
+        executable = Path(resolved_command[0])
+        relative_path = any(separator in resolved_command[0] for separator in ("/", "\\"))
+        lookup = str(cwd / executable) if relative_path and not executable.is_absolute() else str(executable)
+        resolved_command[0] = shutil.which(lookup) or resolved_command[0]
     try:
         proc = subprocess.run(
-            list(command),
+            resolved_command,
             cwd=str(cwd),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -194,7 +203,8 @@ def load_config(root: Path) -> Dict[str, object]:
     data["dependency"].setdefault("fail_on_new_cycles", True)
     data["verification"].setdefault("require_commands", True)
     data["verification"].setdefault("commands", [])
-    data["tasks"].setdefault("keep_history", True)
+    if data["tasks"].get("keep_history") is False:
+        raise RuntimeError("tasks.keep_history=false is unsupported. Remove this setting; task records are always retained.")
     data["tasks"].setdefault("auto_load_history", False)
     return data
 
@@ -212,6 +222,16 @@ def ignored(path: Path, root: Path) -> bool:
 
 def iter_files(root: Path, max_files: int = 20000) -> Iterable[Path]:
     count = 0
+    git_files = repository_files(root)
+    if git_files is not None:
+        for relative in git_files:
+            path = root / relative
+            if path.is_file() and not path.is_symlink() and not ignored(path, root):
+                yield path
+                count += 1
+                if count >= max_files:
+                    return
+        return
     for current, dirs, filenames in os.walk(str(root)):
         current_path = Path(current)
         dirs[:] = [
@@ -295,15 +315,16 @@ def _incremental_file_index(
     changed_files: Sequence[str],
     max_files: int,
 ) -> Dict[str, Dict[str, object]]:
+    eligible = {path.relative_to(root).as_posix() for path in iter_files(root, max_files)}
     result = {
         str(path): dict(value)
         for path, value in previous.items()
-        if isinstance(path, str) and isinstance(value, dict)
+        if isinstance(path, str) and isinstance(value, dict) and path in eligible
     }
-    for raw in changed_files:
+    for raw in set(changed_files) | (eligible - set(result)):
         rel = Path(raw).as_posix()
         path = root / rel
-        record = _file_record(root, path)
+        record = _file_record(root, path) if rel in eligible else None
         if record is None:
             result.pop(rel, None)
         else:
@@ -619,13 +640,10 @@ def scan_python_dependency_sources(
                         if alias.name != "*":
                             targets.append(base + "." + alias.name)
 
-            resolved = None
             for target in targets:
                 resolved = best_python_target(target, module_to_path)
-                if resolved:
-                    break
-            if resolved and resolved != rel:
-                edges.add((rel, resolved))
+                if resolved and resolved != rel:
+                    edges.add((rel, resolved))
     return nodes, edges
 
 
@@ -674,47 +692,48 @@ def scan_js_dependencies(root: Path, files: Sequence[Path]) -> Tuple[Set[str], S
 
 
 def strongly_connected_components(nodes: Iterable[str], edges: Iterable[Tuple[str, str]]) -> List[List[str]]:
+    # Iterative Kosaraju: both passes use explicit stacks, including deep chains.
     adjacency = defaultdict(list)
+    reverse = defaultdict(list)
+    all_nodes = set(nodes)
     for source, target in edges:
         adjacency[source].append(target)
+        reverse[target].append(source)
+        all_nodes.update((source, target))
+    visited = set()
+    finished = []
+    for node in sorted(all_nodes):
+        if node in visited:
+            continue
+        visited.add(node)
+        stack = [(node, iter(adjacency[node]))]
+        while stack:
+            source, children = stack[-1]
+            target = next(children, None)
+            if target is None:
+                finished.append(source)
+                stack.pop()
+            elif target not in visited:
+                visited.add(target)
+                stack.append((target, iter(adjacency[target])))
 
-    index = 0
-    indices = {}
-    lowlinks = {}
-    stack = []
-    on_stack = set()
+    visited.clear()
     components = []
-
-    def visit(node: str) -> None:
-        nonlocal index
-        indices[node] = index
-        lowlinks[node] = index
-        index += 1
-        stack.append(node)
-        on_stack.add(node)
-
-        for target in adjacency.get(node, []):
-            if target not in indices:
-                visit(target)
-                lowlinks[node] = min(lowlinks[node], lowlinks[target])
-            elif target in on_stack:
-                lowlinks[node] = min(lowlinks[node], indices[target])
-
-        if lowlinks[node] == indices[node]:
-            component = []
-            while stack:
-                value = stack.pop()
-                on_stack.remove(value)
-                component.append(value)
-                if value == node:
-                    break
-            if len(component) > 1:
-                components.append(sorted(component))
-
-    for node in sorted(set(nodes)):
-        if node not in indices:
-            visit(node)
-
+    for node in reversed(finished):
+        if node in visited:
+            continue
+        visited.add(node)
+        pending = [node]
+        component = []
+        while pending:
+            source = pending.pop()
+            component.append(source)
+            for target in reverse[source]:
+                if target not in visited:
+                    visited.add(target)
+                    pending.append(target)
+        if len(component) > 1:
+            components.append(sorted(component))
     return sorted(components)
 
 
@@ -757,33 +776,64 @@ def _dependency_payload(
         "cycles": strongly_connected_components(nodes, edges),
         "limitations": [
             "Static baseline only: dynamic imports, runtime dependency injection, reflection, generated code, framework registries, macros, and non-relative JS/TS aliases may require native analyzers.",
-            "Incremental refresh is file-level for Python/JavaScript/TypeScript; PHP/Java/Kotlin/Go/Rust refresh only the affected language slice when those files or their module manifest change.",
+            "Python/JavaScript/TypeScript refresh changed files, or the affected language slice when source paths are added, removed, or renamed; PHP/Java/Kotlin/Go/Rust refresh the affected language slice when those files or their module manifest change.",
         ],
         "primary_language": stack.get("primary"),
         "cache": cache_meta,
     }
 
 
+def _valid_dependency_cache(data: object) -> bool:
+    if not isinstance(data, dict):
+        return False
+
+    def string_list(value: object) -> bool:
+        return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+    if not string_list(data.get("nodes")):
+        return False
+    edges = data.get("edges")
+    if not isinstance(edges, list) or not all(
+        isinstance(item, dict)
+        and isinstance(item.get("from"), str)
+        and isinstance(item.get("to"), str)
+        for item in edges
+    ):
+        return False
+    for key in ("dependencies", "reverse_dependencies"):
+        mapping = data.get(key)
+        if not isinstance(mapping, dict) or not all(
+            isinstance(path, str) and string_list(targets)
+            for path, targets in mapping.items()
+        ):
+            return False
+    cycles = data.get("cycles")
+    return isinstance(cycles, list) and all(string_list(cycle) for cycle in cycles)
+
+
 def dependency_graph(root: Path, force: bool = False) -> Dict[str, object]:
-    project_context(root, force=force)
+    context = project_context(root, force=force)
+    force = force or context["cache"]["mode"] == "FULL_REBUILD"
     refresh = cache_status(root, "dependency", force=force)
-    if refresh["mode"] == "CACHE_HIT":
-        cached = load_cache(root, "dependency", {})
-        if isinstance(cached, dict):
-            data = dict(cached)
-            data["cache"] = {
-                "mode": "CACHE_HIT",
-                "reason": refresh["reason"],
-                "changed_files": [],
-            }
-            json_dump(runtime_dir(root) / "dependency-map.json", data)
-            return data
+    previous = None
+    if refresh["mode"] != "FULL_REBUILD":
+        previous = load_cache(root, "dependency")
+    if refresh["mode"] != "FULL_REBUILD" and not _valid_dependency_cache(previous):
         refresh = {
             "mode": "FULL_REBUILD",
             "reason": "dependency-cache-invalid",
             "changed_files": [],
-            "repo_state": current_repo_state(root),
+            "repo_state": refresh["repo_state"],
         }
+    if refresh["mode"] == "CACHE_HIT":
+        data = dict(previous)
+        data["cache"] = {
+            "mode": "CACHE_HIT",
+            "reason": refresh["reason"],
+            "changed_files": [],
+        }
+        json_dump(runtime_dir(root) / "dependency-map.json", data)
+        return data
 
     file_index = load_cache(root, "files", {})
     if not isinstance(file_index, dict):
@@ -798,21 +848,25 @@ def dependency_graph(root: Path, force: bool = False) -> Dict[str, object]:
     stack = detect_stack(root)
 
     if refresh["mode"] == "INCREMENTAL_REFRESH":
-        previous = load_cache(root, "dependency", {})
-    else:
-        previous = {}
-
-    if refresh["mode"] == "INCREMENTAL_REFRESH" and isinstance(previous, dict):
         nodes = set(str(item) for item in (previous.get("nodes") or []))
         edges = edge_set(previous)
         changed = {Path(item).as_posix() for item in refresh["changed_files"]}
         current_sources = set(source_paths)
-        deleted = {path for path in changed if path in nodes and path not in current_sources}
+        deleted = nodes - current_sources
         changed_current = {path for path in changed if path in current_sources}
+        rescan_sources = set(changed_current)
+        js_ext = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
+        # A new/deleted module can change imports in files whose contents did not
+        # change. Re-resolve that language slice when its path universe changes.
+        for extensions in ({".py"}, js_ext):
+            old_paths = {path for path in nodes if Path(path).suffix.lower() in extensions}
+            new_paths = {path for path in current_sources if Path(path).suffix.lower() in extensions}
+            if old_paths != new_paths:
+                rescan_sources.update(new_paths)
 
         edges = {
             (source, target) for source, target in edges
-            if source not in changed_current
+            if source not in rescan_sources
             and source not in deleted
             and target not in deleted
         }
@@ -820,7 +874,7 @@ def dependency_graph(root: Path, force: bool = False) -> Dict[str, object]:
         nodes.update(changed_current)
 
         python_changed = [
-            root / path for path in changed_current if Path(path).suffix.lower() == ".py"
+            root / path for path in sorted(rescan_sources) if Path(path).suffix.lower() == ".py"
         ]
         if python_changed:
             py_nodes, py_edges = scan_python_dependency_sources(
@@ -831,9 +885,8 @@ def dependency_graph(root: Path, force: bool = False) -> Dict[str, object]:
             nodes.update(py_nodes)
             edges.update(py_edges)
 
-        js_ext = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
         js_changed = [
-            root / path for path in changed_current if Path(path).suffix.lower() in js_ext
+            root / path for path in sorted(rescan_sources) if Path(path).suffix.lower() in js_ext
         ]
         if js_changed:
             js_nodes, js_edges = scan_js_dependencies(root, js_changed)
@@ -888,23 +941,20 @@ def dependency_graph(root: Path, force: bool = False) -> Dict[str, object]:
             "changed_files": list(refresh["changed_files"]),
         }
 
+    # Resolvers must not reintroduce Git-ignored or otherwise excluded targets.
+    nodes = set(source_paths)
+    edges = {(source, target) for source, target in edges if source in nodes and target in nodes}
     data = _dependency_payload(root, nodes, edges, stack, cache_meta)
     json_dump(runtime_dir(root) / "dependency-map.json", data)
     write_cache(root, "dependency", data, refresh["repo_state"])
     return data
 
 def changed_files(root: Path) -> List[str]:
-    status = git(root, "status", "--porcelain=v1")
-    if not status:
-        return []
     output = []
-    for line in status.splitlines():
-        if len(line) < 4:
-            continue
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        output.append(path.strip())
+    for record in current_repo_state(root).get("dirty", []):
+        output.append(record["path"])
+        if record["old_path"]:
+            output.append(record["old_path"])
     return sorted(set(output))
 
 
@@ -1075,10 +1125,7 @@ def relevant_context(
 
 
 def impact_analysis(root: Path, targets: Optional[Sequence[str]] = None) -> Dict[str, object]:
-    graph_path = runtime_dir(root) / "dependency-map.json"
-    graph = json_load(graph_path, None)
-    if not isinstance(graph, dict):
-        graph = dependency_graph(root)
+    graph = dependency_graph(root)
 
     selected = list(targets or changed_files(root))
     selected = [Path(item).as_posix() for item in selected]
@@ -1155,10 +1202,16 @@ def start_task(root: Path, mode: str, request: str) -> Dict[str, object]:
     valid_modes = {"feature", "change", "bug_fix", "refactor", "hotfix"}
     if mode not in valid_modes:
         raise ValueError("Unsupported mode: {}".format(mode))
+    load_config(root)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    task_id = "{}-{}-{}".format(stamp, mode.replace("_", "-"), slugify(request))
-    task_path = tasks_dir(root) / task_id
-    task_path.mkdir(parents=True, exist_ok=True)
+    while True:
+        task_id = "{}-{}-{}-{}".format(stamp, mode.replace("_", "-"), slugify(request), uuid.uuid4().hex[:12])
+        task_path = tasks_dir(root) / task_id
+        try:
+            task_path.mkdir(parents=True, exist_ok=False)
+            break
+        except FileExistsError:
+            continue
     task = {
         "id": task_id,
         "mode": mode,
@@ -1193,15 +1246,27 @@ def copy_to_current_task(root: Path, filename: str, data: object) -> None:
         json_dump(path / filename, data)
 
 
+def _dependency_baseline(task_path: Path) -> Dict[str, object]:
+    before = json_load(task_path / "dependency-before.json", None)
+    if not _valid_dependency_cache(before):
+        raise RuntimeError(
+            "Dependency baseline is missing or invalid. Preserve existing evidence; "
+            "do not create a replacement baseline after implementation has started."
+        )
+    return before
+
+
 def snapshot_dependencies(root: Path, when: str) -> Dict[str, object]:
     if when not in {"before", "after"}:
         raise ValueError("Snapshot must be before or after")
-    graph = json_load(runtime_dir(root) / "dependency-map.json", None)
-    if not isinstance(graph, dict):
-        graph = dependency_graph(root)
     task_path = current_task_path(root)
     if not task_path:
         raise RuntimeError("No current task. Start one before taking a snapshot.")
+    if when == "before" and (task_path / "dependency-before.json").exists():
+        return _dependency_baseline(task_path)
+    if when == "after":
+        _dependency_baseline(task_path)
+    graph = dependency_graph(root)
     destination = task_path / ("dependency-{}.json".format(when))
     json_dump(destination, graph)
     if when == "after":
@@ -1231,12 +1296,10 @@ def dependency_diff(root: Path) -> Dict[str, object]:
     task_path = current_task_path(root)
     if not task_path:
         raise RuntimeError("No current task.")
-    before = json_load(task_path / "dependency-before.json", {})
-    after = json_load(task_path / "dependency-after.json", {})
-    if not isinstance(before, dict):
-        before = {}
-    if not isinstance(after, dict):
-        after = {}
+    before = _dependency_baseline(task_path)
+    after = json_load(task_path / "dependency-after.json", None)
+    if not _valid_dependency_cache(after):
+        raise RuntimeError("Dependency after snapshot is missing or invalid. Refresh it before comparing.")
 
     before_edges = edge_set(before)
     after_edges = edge_set(after)
@@ -1260,21 +1323,43 @@ def dependency_diff(root: Path) -> Dict[str, object]:
     }
 
 
-def verify(root: Path) -> Dict[str, object]:
-    project_context(root)
-    dependency_graph(root)
+def verification_fingerprint(root: Path) -> str:
+    """Bind evidence to file contents, even outside Git or with a clean index."""
+    config = load_config(root)
+    files = {path.relative_to(root).as_posix(): path for path in iter_files(
+        root, max_files=int(config["context"].get("max_files", 20000))
+    )}
+    control = config_path(root)
+    if control.is_file():
+        files[control.relative_to(root).as_posix()] = control
+    digest = hashlib.sha256()
+    for relative, path in sorted(files.items()):
+        digest.update(relative.encode("utf-8") + b"\0")
+        try:
+            content_hash = hashlib.sha256()
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    content_hash.update(chunk)
+            digest.update(content_hash.digest())
+        except OSError as exc:
+            raise RuntimeError("Cannot fingerprint verification input: {}".format(relative)) from exc
+    return digest.hexdigest()
 
+
+def verify(root: Path) -> Dict[str, object]:
     task_path = current_task_path(root)
     dep_diff = None
     if task_path and (task_path / "dependency-before.json").exists():
-        snapshot_dependencies(root, "after")
-        dep_diff = json_load(task_path / "dependency-diff.json", {})
+        _dependency_baseline(task_path)
 
     config = load_config(root)
     verification = config.get("verification") or {}
     commands = verification.get("commands") or []
     require_commands = bool(verification.get("require_commands", True))
     results = []
+    initial_fingerprint = verification_fingerprint(root)
+    last_fingerprint = initial_fingerprint
+    inputs_changed = False
 
     for command in commands:
         if not isinstance(command, list) or not command or not all(isinstance(x, str) for x in command):
@@ -1288,7 +1373,22 @@ def verify(root: Path) -> Dict[str, object]:
                 }
             )
             continue
-        results.append(run_process(command, cwd=root))
+        result = run_process(command, cwd=root)
+        final_fingerprint = verification_fingerprint(root)
+        result["input_fingerprint_before"] = last_fingerprint
+        result["input_fingerprint_after"] = final_fingerprint
+        inputs_changed = inputs_changed or final_fingerprint != last_fingerprint
+        last_fingerprint = final_fingerprint
+        results.append(result)
+
+    # Commands may format or generate source; compare dependencies of the final tree.
+    if task_path and (task_path / "dependency-before.json").exists():
+        snapshot_dependencies(root, "after")
+        dep_diff = dependency_diff(root)
+    else:
+        dependency_graph(root)
+    final_fingerprint = verification_fingerprint(root)
+    inputs_changed = inputs_changed or final_fingerprint != last_fingerprint
 
     failed_commands = [item for item in results if item.get("returncode") != 0]
     fail_on_new_cycles = bool((config.get("dependency") or {}).get("fail_on_new_cycles", True))
@@ -1296,9 +1396,9 @@ def verify(root: Path) -> Dict[str, object]:
     if isinstance(dep_diff, dict):
         new_cycles = dep_diff.get("new_cycles") or []
 
-    if require_commands and not commands:
+    if not commands:
         status = "NEEDS_VERIFICATION_CONFIG"
-    elif failed_commands or (fail_on_new_cycles and new_cycles):
+    elif failed_commands or inputs_changed or (fail_on_new_cycles and new_cycles):
         status = "FAIL_VERIFICATION"
     else:
         status = "PASS_VERIFIED"
@@ -1307,6 +1407,13 @@ def verify(root: Path) -> Dict[str, object]:
     data = {
         "generated_at": utc_now(),
         "status": status,
+        "task_id": (current_task(root) or {}).get("id"),
+        "source_fingerprint": final_fingerprint,
+        "input_fingerprint_before": initial_fingerprint,
+        "inputs_changed_during_verification": inputs_changed,
+        "rerun_required": inputs_changed,
+        "rerun_commands": commands if inputs_changed else [],
+        "rerun_reason": "Verification inputs changed; rerun all configured commands against the final tree." if inputs_changed else None,
         "architecture": {
             "profile": architecture.get("effective_profile") if isinstance(architecture, dict) else None,
             "pattern": architecture.get("pattern") if isinstance(architecture, dict) else None,
@@ -1327,9 +1434,17 @@ def verify(root: Path) -> Dict[str, object]:
 
 
 def status(root: Path) -> Dict[str, object]:
+    task = current_task(root)
+    report = json_load(runtime_dir(root) / "verification.json")
+    verification_current = (
+        isinstance(report, dict)
+        and report.get("task_id") == (task or {}).get("id")
+        and report.get("source_fingerprint") == verification_fingerprint(root)
+    )
     return {
         "root": str(root),
-        "task": current_task(root),
+        "task": task,
+        "verification_current": verification_current,
         "stack": detect_stack(root),
         "persistent_state": persistent_state_summary(root),
         "runtime": {

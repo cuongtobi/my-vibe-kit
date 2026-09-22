@@ -99,7 +99,7 @@ def copy_tree_safe(
     events: List[Dict[str, str]],
 ) -> None:
     for path in sorted(src.rglob("*")):
-        if not path.is_file():
+        if not path.is_file() or "__pycache__" in path.parts or path.suffix.lower() in {".pyc", ".pyo"}:
             continue
         rel = path.relative_to(src)
         target = dst / rel
@@ -147,7 +147,6 @@ def default_config(target: Path) -> Dict[str, object]:
             "commands": discover_verification_commands(target),
         },
         "tasks": {
-            "keep_history": True,
             "auto_load_history": False,
         },
     }
@@ -291,7 +290,7 @@ def install_project(
                 target / ".vibe" / "install-manifest.json",
                 json.dumps(manifest, indent=2) + "\n",
                 dry_run=dry_run,
-                force=True,
+                force=force,
             ),
         }
     )
@@ -347,20 +346,21 @@ def install_global(
     return events
 
 
-def bundle_claude(force: bool = False) -> List[Path]:
+def bundle_claude(force: bool = False, dry_run: bool = False) -> List[Path]:
     out_dir = ROOT / "dist" / "claude-skills"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        out_dir.mkdir(parents=True, exist_ok=True)
     outputs = []
     for skill_dir in sorted((ROOT / "skills").iterdir()):
         if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
             continue
         out = out_dir / (skill_dir.name + ".zip")
-        if out.exists() and not force:
+        if dry_run or (out.exists() and not force):
             outputs.append(out)
             continue
         with zipfile.ZipFile(str(out), "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for path in sorted(skill_dir.rglob("*")):
-                if path.is_file():
+                if path.is_file() and "__pycache__" not in path.parts and path.suffix.lower() not in {".pyc", ".pyo"}:
                     archive.write(str(path), str(path.relative_to(skill_dir)))
         outputs.append(out)
     return outputs
@@ -411,9 +411,9 @@ def main() -> int:
     agents = normalize_agents(args.agents)
 
     if args.bundle_claude:
-        outputs = bundle_claude(force=args.force)
+        outputs = bundle_claude(force=args.force, dry_run=args.dry_run)
         for output in outputs:
-            print("bundled      {}".format(output))
+            print("{:<12} {}".format("would-bundle" if args.dry_run else "bundled", output))
         if args.scope == "project" and args.target == "." and args.agents == ["all"]:
             return 0
 

@@ -266,9 +266,11 @@ State local tái sử dụng nằm tại:
 
 Đây chỉ là performance cache, không phải project truth và không phải verification evidence.
 
-`index-state.json` lưu version schema/scanner và Git repository state tương ứng với cache.
+`index-state.json` lưu version schema/scanner, checksum SHA-256 của artifact và Git repository state tương ứng với cache. Toàn bộ context bundle (file index, context, framework, adapter, architecture) và dependency cache được kiểm tra trước khi tái sử dụng hoặc refresh incremental. Artifact thiếu, hỏng hoặc không nhất quán sẽ kích hoạt full rebuild; repository rỗng hợp lệ vẫn được cache.
 
-Với repo clean, Git HEAD là đủ. Với file application đang dirty hoặc untracked, runtime chỉ hash các file thay đổi đó thay vì hash toàn repository.
+Để xác định cache còn hợp lệ, runtime dùng Git HEAD, hash của file dirty/untracked và hash cấu hình runtime. Đường dẫn Git được đọc bằng output phân cách NUL để giữ đúng Unicode, khoảng trắng và rename. Repository Git index file tracked và file untracked không bị ignore, trong giới hạn file và quy tắc loại trừ thư mục của kit. File generated bị ignore không vào graph trừ khi đã tracked; ngoài Git, scanner filesystem vẫn hoạt động và refresh đầy đủ.
+
+`index.use_git_delta=false` tắt incremental refresh: cache hợp lệ vẫn được dùng khi không có thay đổi, nhưng repository đã thay đổi sẽ full rebuild. `impact` refresh qua cùng cache engine trước khi tính consumer và test bị ảnh hưởng. Thuật toán phát hiện cycle không dùng đệ quy nên dependency chain sâu không làm vượt giới hạn recursion của Python.
 
 ### Các cache mode
 
@@ -290,12 +292,14 @@ FULL_REBUILD
 
 Cache hit giúp tiết kiệm công việc. Nó **không** có nghĩa code đã pass test.
 
+Trước khi dùng lại hoặc cập nhật incremental dependency graph, runtime kiểm tra cấu trúc node, edge, dependency map và cycle trong cache. JSON hỏng hoặc graph sai cấu trúc sẽ kích hoạt full rebuild thay vì bị coi là graph rỗng. Khi scanner được nâng cấp, cache của phiên bản cũ tự động bị vô hiệu hóa.
+
 ### Incremental refresh theo ngôn ngữ
 
 Baseline không dependency ngoài hiện hoạt động như sau:
 
-- Python — chỉ refresh source file đã thay đổi, dùng universe path Python hiện tại/cache để resolve local import.
-- JavaScript/TypeScript — chỉ refresh file đã thay đổi cho relative import/export/require.
+- Python — refresh source file đã thay đổi, dùng universe path Python hiện tại để resolve local import. Khi thêm, xóa hoặc đổi tên source path Python, runtime refresh toàn bộ Python slice để resolve lại import trong cả file không đổi. Scanner ghi nhận mọi local module được import, bao gồm nhiều import trong một câu lệnh và submodule của package.
+- JavaScript/TypeScript — refresh file đã thay đổi cho relative import/export/require; khi thêm, xóa hoặc đổi tên source path JS/TS, runtime refresh toàn bộ JS/TS slice để cập nhật cả importer không đổi và đường dẫn resolve dự phòng.
 - Vue/Svelte single-file component — vẫn được track như source/context node dù dependency parsing trong embedded script chỉ là best-effort; framework context nhận diện component/route và native tooling vẫn là nguồn chính.
 - PHP — refresh PHP slice khi file PHP hoặc Composer manifest thay đổi.
 - Java/Kotlin — refresh JVM slice khi source JVM hoặc Maven/Gradle manifest thay đổi.
@@ -350,24 +354,29 @@ Audit record của từng task nằm tại:
 ├── relevant-context.json
 ├── impact.json
 ├── plan.md
+├── working-tree-before.md
+├── acceptance.md
 ├── dependency-before.json
 ├── dependency-after.json
 ├── dependency-diff.json
 └── verification.json
 ```
 
+Agent viết `plan.md`, `working-tree-before.md` và `acceptance.md`; runtime ghi các JSON artifact. Working-tree record phân biệt chỉnh sửa sẵn có của user với thay đổi của task. Acceptance evidence ánh xạ từng tiêu chí trong plan tới kiểm tra và kết quả thực tế.
+
 Policy mặc định:
 
 ```json
 {
   "tasks": {
-    "keep_history": true,
     "auto_load_history": false
   }
 }
 ```
 
 Session mới không được enumerate và load tất cả task cũ.
+
+Task record luôn được giữ lại. `tasks.keep_history` không còn là tùy chọn được hỗ trợ: giá trị `true` cũ vẫn được chấp nhận, còn `false` báo lỗi cấu hình rõ ràng thay vì bị bỏ qua. ID task mới có suffix ngẫu nhiên và thư mục được tạo độc quyền, tránh dùng chung bằng chứng khi hai request xuất hiện trong cùng giây. Khi tiếp tục công việc, tái sử dụng current task thay vì gọi lại `task start`.
 
 Task lịch sử chỉ được đọc khi:
 
@@ -439,7 +448,6 @@ Config kiểu v0.4 mặc định được giữ đơn giản:
     "commands": []
   },
   "tasks": {
-    "keep_history": true,
     "auto_load_history": false
   }
 }
@@ -504,19 +512,20 @@ Ví dụ:
 Use vibe to add percentage-based trailing stops while preserving old fixed-point configs.
 ```
 
+Yêu cầu triển khai cho phép thực hiện plan/build/verify trong phạm vi đã yêu cầu mà không cần xin duyệt plan thêm lần nữa. Yêu cầu chỉ lập kế hoạch dừng sau plan. Vẫn tuân thủ bước phê duyệt do user yêu cầu rõ ràng và làm rõ quyết định còn thiếu nếu nó ảnh hưởng đáng kể tới kết quả.
+
 ### Plan
 
 Skill plan:
 
 1. Đọc `AGENTS.md` và `.vibe/config.json`.
-2. Tạo current task record.
-3. Chạy `context` để reuse hoặc incremental refresh repository context.
-4. Chạy `deps` để reuse hoặc incremental refresh dependency graph.
-5. Chạy `relevant` để tạo bounded context cho source/test/module.
-6. Chỉ đọc bounded context này trước.
-7. Chỉ mở rộng context khi evidence yêu cầu.
-8. Chạy impact analysis cho target đã xác định.
-9. Tạo implementation plan và verification plan.
+2. Đọc current task và tái sử dụng khi tiếp tục cùng mục tiêu; chỉ tạo record cho mục tiêu mới.
+3. Ghi nhận thay đổi staged, unstaged và untracked có sẵn vào `working-tree-before.md` trước implementation; giữ nguyên record khi tiếp tục task.
+4. Chạy `context --summary` và `deps --summary` để refresh facts, giữ graph đầy đủ trên đĩa.
+5. Chạy `relevant` và bắt đầu từ bounded context cho source/test/module. Nếu kết quả rỗng hoặc không liên quan, tìm filename/symbol có giới hạn rồi xác định target cụ thể.
+6. Chỉ tạo `snapshot before` trước implementation và khi task chưa có baseline; replanning không thay thế baseline ban đầu.
+7. Chạy impact analysis và chỉ mở rộng context khi evidence yêu cầu.
+8. Tạo plan với acceptance criteria quan sát được (`AC1`, `AC2`, v.v.), ánh xạ tới test, command hoặc kiểm tra thủ công; ghi rõ khoảng trống bằng chứng.
 
 ### Build
 
@@ -526,22 +535,29 @@ Build:
 - bắt đầu từ `relevant-context.json`,
 - tuân architecture policy,
 - tạo diff nhỏ nhất đúng yêu cầu,
-- thêm focused tests,
+- thực hiện acceptance criteria với kiểm tra phù hợp,
+- giữ nguyên chỉnh sửa sẵn có, kể cả hunk không liên quan trong target file,
 - chỉ mở rộng context khi có evidence.
+
+Kiến trúc standard vẫn được dùng ports/adapters hoặc abstraction khác khi có nhu cầu cụ thể về boundary, variation, reuse hoặc testing. Không bắt buộc áp dụng toàn bộ cấu trúc Clean/Hexagonal.
 
 ### Verify
 
 Verify:
 
 - refresh context/dependency bằng cùng cache/delta engine,
-- capture dependency state sau thay đổi,
-- so sánh dependency snapshot,
+- capture dependency state sau thay đổi khi có baseline hợp lệ từ trước implementation,
+- so sánh dependency snapshot hoặc báo rõ thiếu khả năng so sánh,
 - phát hiện cycle mới,
 - chạy lint/type/test/build command đã cấu hình,
-- review final diff,
-- lưu `verification.json`.
+- review diff unstaged, staged và file untracked liên quan dựa trên working-tree record ban đầu,
+- lưu kết quả runtime trong `verification.json` và evidence cho từng tiêu chí trong `acceptance.md` do agent viết.
 
 `CACHE_HIT` không được dùng để bỏ qua verification command.
+
+Runtime status và kết quả acceptance được báo riêng. Mỗi tiêu chí có trạng thái `met`, `unmet` hoặc `unverified`, kèm evidence thực tế và giới hạn. Chỉ pass các command đã cấu hình chưa đủ để hoàn tất task còn thiếu bằng chứng bắt buộc. Sửa code/test/configuration sau đó phải chạy lại kiểm tra bị ảnh hưởng và final runtime verification; sửa riêng tài liệu cần kiểm tra tài liệu phù hợp.
+
+Xử lý lỗi theo nguyên nhân: lỗi code quay về build; sai scope/criteria quay về plan; thiếu verification configuration cần xác định check có sẵn của project; lỗi môi trường cần chẩn đoán tool/configuration bị thiếu. Nếu thiếu runtime, dùng check của project và ghi rõ giới hạn runtime verification. Baseline thiếu/hỏng sau khi đã sửa code phải được báo rõ, không được dựng giả. Chỉ retry khi chẩn đoán hoặc thay đổi cụ thể mở ra hướng xử lý; nếu không, báo blocker và hành động cần thiết.
 
 ## Các change mode
 
@@ -656,19 +672,19 @@ Test nên assert observable behavior thay vì internal call count hoặc impleme
 ```bash
 python .vibe/tools/vibe.py detect
 python .vibe/tools/vibe.py task start --mode bug_fix --request "stop-loss gap fill is wrong"
-python .vibe/tools/vibe.py context
+python .vibe/tools/vibe.py context --summary
 python .vibe/tools/vibe.py adapter
 python .vibe/tools/vibe.py framework
 python .vibe/tools/vibe.py architecture
 python .vibe/tools/vibe.py state
-python .vibe/tools/vibe.py deps
+python .vibe/tools/vibe.py deps --summary
 python .vibe/tools/vibe.py relevant
 python .vibe/tools/vibe.py relevant src/orders/service.py
 python .vibe/tools/vibe.py relevant --query "fix order cancellation"
 python .vibe/tools/vibe.py impact
 python .vibe/tools/vibe.py snapshot before
 python .vibe/tools/vibe.py snapshot after
-python .vibe/tools/vibe.py verify
+python .vibe/tools/vibe.py verify --summary
 python .vibe/tools/vibe.py status
 python .vibe/tools/vibe.py rebuild
 ```
@@ -678,6 +694,10 @@ Command quan trọng:
 - `state` — cho biết persistent context/dependency sẽ được reuse hay refresh.
 - `relevant` — tạo bounded context cho task.
 - `rebuild` — ép full rebuild context/dependency để debug hoặc sau thay đổi cấu trúc lớn.
+
+`context`, `deps` và `verify` nhận hai flag loại trừ nhau `--summary` và `--quiet` sau tên command. Mặc định vẫn xuất JSON đầy đủ. `--summary` in số lượng/trạng thái và đường dẫn artifact, không in chi tiết graph, danh sách file hoặc command log; `--quiet` tắt stdout. Cả hai vẫn ghi artifact đầy đủ và giữ nguyên exit code cùng lỗi trên stderr. Exit code của verification là `0` cho `PASS_VERIFIED`, `1` cho verification thất bại/lỗi runtime và `3` khi thiếu command configuration. Khi có lỗi, đọc command result liên quan trong `verification.json`, không coi command im lặng là thành công.
+
+Verification summary có trường `dependency_comparison_available`; khi là false, số cycle mới trong summary không chứng minh rằng thay đổi không tạo cycle mới.
 
 ## Phân tích dependency
 
@@ -753,16 +773,18 @@ Với frontend, native tooling hữu ích gồm ESLint, TypeScript/Vue/Svelte ty
 Trước implementation:
 
 ```bash
-python .vibe/tools/vibe.py deps
+python .vibe/tools/vibe.py deps --summary
 python .vibe/tools/vibe.py snapshot before
 ```
 
 Sau implementation:
 
 ```bash
-python .vibe/tools/vibe.py deps
+python .vibe/tools/vibe.py deps --summary
 python .vibe/tools/vibe.py snapshot after
 ```
+
+Snapshot tự refresh dependency hiện tại. `snapshot before` giữ nguyên baseline hợp lệ đã có và từ chối ghi đè baseline hỏng. `snapshot after` và dependency comparison yêu cầu baseline gốc hợp lệ, không thay bằng graph rỗng khi thiếu bằng chứng. Không tạo `snapshot before` sau khi implementation đã bắt đầu. Tiếp tục công việc thì tái sử dụng current task; retry hoặc sửa plan không phải task mới.
 
 Diff gồm:
 
@@ -783,12 +805,20 @@ Các trạng thái:
 Chỉ được tạo `PASS_VERIFIED` khi:
 
 1. deterministic context/dependency work hoàn tất,
-2. không có forbidden new cycle,
-3. required verification command đã được cấu hình,
+2. phép so sánh before/after khi khả dụng không phát hiện forbidden new cycle,
+3. ít nhất một verification command đã được cấu hình,
 4. command thực sự được chạy,
 5. tất cả required command đều thành công.
 
 Cache hit không bao giờ đủ để làm bằng chứng cho `PASS_VERIFIED`.
+
+Verification chạy các command đã cấu hình trước khi chụp dependency graph cuối cùng và snapshot after. Fingerprint đầu vào trước/sau mỗi command được ghi lại. Nếu command thay đổi file được index hoặc cấu hình runtime, kết quả là `FAIL_VERIFICATION` với `rerun_required: true` và `rerun_commands` liệt kê toàn bộ kiểm tra đã cấu hình. Review thay đổi cuối cùng rồi chạy lại các kiểm tra đó; muốn pass thì đầu vào phải ổn định. Đặt output tạm của command trong thư mục bị ignore để không coi đó là đầu vào verification.
+
+`verification.json` có `task_id` và `source_fingerprint` (SHA-256 của đường dẫn/nội dung file được index và cấu hình runtime, trong giới hạn file đã cấu hình). `status.verification_current` đối chiếu cả hai với task và file hiện tại; trường này cho biết report còn hiện hành, không đồng nghĩa đã pass. Verify summary cũng có các định danh này và `rerun_required`. Executable được resolve qua PATH/PATHEXT trước khi chạy, bao gồm package-manager shim `.CMD` trên Windows, không bật `shell=True`. CI bao phủ Linux và Windows.
+
+Danh sách command rỗng trả về `NEEDS_VERIFICATION_CONFIG` (CLI exit code `3`), kể cả khi `verification.require_commands` là `false`. Setting này không cho phép bỏ qua yêu cầu thực sự chạy kiểm tra trước khi báo `PASS_VERIFIED`.
+
+Khi không có baseline gốc, standalone verification vẫn có thể báo các check đã cấu hình pass với `dependency_diff: null`; đó không phải bằng chứng về cycle mới phát sinh. Skill báo riêng giới hạn này và các acceptance criteria unmet/unverified thay vì kết luận toàn bộ task hoàn tất. Baseline đã tồn tại nhưng hỏng sẽ gây lỗi và được giữ nguyên để chẩn đoán.
 
 ## Cấu trúc repository
 
@@ -989,7 +1019,9 @@ Installer:
 - không đụng file project không liên quan,
 - giữ nguyên instruction/config project đã có,
 - báo managed-file conflict,
-- hỗ trợ `--dry-run`,
+- hỗ trợ `--dry-run`, kể cả Claude bundle mà không tạo thư mục hoặc ghi đè ZIP,
+- giữ nguyên `install-manifest.json` bị conflict trừ khi có `--force`,
+- loại `__pycache__`, `.pyc` và `.pyo` khỏi file cài đặt và bundle,
 - chỉ refresh file do kit quản lý khi dùng `--force`.
 
 Nên review diff của target repository trước khi commit.

@@ -266,9 +266,11 @@ Reusable local state lives in:
 
 It is a performance cache, not project truth and not verification evidence.
 
-`index-state.json` records cache schema/scanner versions and the Git repository state associated with cached artifacts.
+`index-state.json` records cache schema/scanner versions, artifact SHA-256 checksums, and the Git repository state associated with cached artifacts. Every context bundle (file index, context, framework, adapter, architecture) and dependency cache is checked before reuse or incremental refresh. Missing, corrupted, or inconsistent artifacts trigger a full rebuild; an empty valid repository remains cacheable.
 
-For a clean repository, Git HEAD is sufficient. For dirty or untracked application files, the runtime hashes only those changed files instead of hashing the whole repository.
+For cache invalidation, the runtime uses Git HEAD, dirty/untracked file hashes, and the runtime configuration hash. Git paths use NUL-delimited output so Unicode, whitespace, and rename paths remain intact. Git repositories index tracked files and non-ignored untracked files, subject to the kit's directory exclusions and file limit. Ignored generated files are excluded from the graph unless already tracked; outside Git, the filesystem scanner remains available and refreshes fully.
+
+`index.use_git_delta=false` disables incremental refresh: unchanged valid caches can still be reused, but changed repositories rebuild fully. `impact` refreshes through this same cache engine before calculating consumers and affected tests. Cycle detection uses an iterative algorithm so long dependency chains do not exhaust Python's recursion limit.
 
 ### Cache modes
 
@@ -290,12 +292,14 @@ FULL_REBUILD
 
 A cache hit saves work. It does **not** mean the code passed tests.
 
+Before reusing or incrementally updating a dependency graph, the runtime validates its cached nodes, edges, dependency maps, and cycles. Malformed JSON or an invalid graph structure triggers a full rebuild instead of being treated as an empty graph. Scanner upgrades invalidate older caches automatically.
+
 ### Incremental refresh by language
 
 The zero-dependency baseline currently behaves as follows:
 
-- Python — refresh changed source files only while using the current/cached Python path universe for local import resolution.
-- JavaScript/TypeScript — refresh changed files for relative import/export/require edges.
+- Python — refresh changed source files while using the current Python path universe for local import resolution. Adding, deleting, or renaming Python source paths refreshes the Python slice so unchanged importers are resolved again. Import scanning records all imported local modules, including multiple imports and package submodules.
+- JavaScript/TypeScript — refresh changed files for relative import/export/require edges; adding, deleting, or renaming JS/TS source paths refreshes the JS/TS slice to update unchanged importers and resolution fallbacks.
 - Vue/Svelte single-file components — tracked as source/context nodes even though embedded-script dependency parsing remains best-effort; framework context identifies components/routes and native tooling remains authoritative.
 - PHP — refresh the PHP slice when PHP files or Composer manifests change.
 - Java/Kotlin — refresh the JVM slice when JVM files or Maven/Gradle manifests change.
@@ -350,24 +354,29 @@ Per-task audit records live under:
 ├── relevant-context.json
 ├── impact.json
 ├── plan.md
+├── working-tree-before.md
+├── acceptance.md
 ├── dependency-before.json
 ├── dependency-after.json
 ├── dependency-diff.json
 └── verification.json
 ```
 
+The agent writes `plan.md`, `working-tree-before.md`, and `acceptance.md`; the runtime writes the JSON artifacts. The working-tree record distinguishes pre-existing user edits from task changes. Acceptance evidence maps each planned criterion to an actual check and outcome.
+
 Default policy:
 
 ```json
 {
   "tasks": {
-    "keep_history": true,
     "auto_load_history": false
   }
 }
 ```
 
 A new session must not enumerate and load every old task.
+
+Task records are always retained. `tasks.keep_history` is no longer a supported option: legacy `true` is tolerated, while `false` reports an explicit configuration error instead of silently doing nothing. New task IDs include a random suffix and directories are created exclusively, preventing same-second requests from sharing evidence. Continuing work reuses the current task rather than calling `task start` again.
 
 Historical tasks are loaded only when:
 
@@ -439,7 +448,6 @@ The default v0.4-style configuration is intentionally simple:
     "commands": []
   },
   "tasks": {
-    "keep_history": true,
     "auto_load_history": false
   }
 }
@@ -504,19 +512,20 @@ Example:
 Use vibe to add percentage-based trailing stops while preserving old fixed-point configs.
 ```
 
+An implementation request authorizes plan/build/verify within the requested scope without a separate plan approval. A planning-only request stops after the plan. Explicit user approval boundaries still apply, and missing decisions that materially affect the outcome must be clarified.
+
 ### Plan
 
 The plan skill:
 
 1. Reads `AGENTS.md` and `.vibe/config.json`.
-2. Starts the current task record.
-3. Runs `context` to reuse or incrementally refresh persistent repository context.
-4. Runs `deps` to reuse or incrementally refresh the dependency graph.
-5. Runs `relevant` to build bounded source/test/module context.
-6. Reads only that bounded context first.
-7. Expands context only when evidence requires it.
-8. Runs impact analysis for identified targets.
-9. Produces implementation and verification plans.
+2. Reads the current task and reuses it for the same objective; starts a record only for a new objective.
+3. Records pre-existing staged, unstaged, and untracked changes in `working-tree-before.md` before implementation; continuation preserves that record.
+4. Runs `context --summary` and `deps --summary` to refresh facts while keeping full graphs on disk.
+5. Runs `relevant` and starts with its bounded source/test/module context. Empty or unrelated results trigger scoped filename/symbol searches and explicit targets.
+6. Captures `snapshot before` only before implementation and only when the task has no baseline; replanning never replaces the original baseline.
+7. Runs impact analysis and expands context only when evidence requires it.
+8. Produces a plan with observable acceptance criteria (`AC1`, `AC2`, etc.) mapped to tests, commands, or manual checks; identifies evidence gaps explicitly.
 
 ### Build
 
@@ -526,22 +535,29 @@ Build:
 - starts with `relevant-context.json`,
 - follows the architecture policy,
 - makes the smallest correct change,
-- adds focused tests,
+- implements the acceptance criteria with appropriate checks,
+- preserves pre-existing changes, including unrelated hunks in target files,
 - expands context only when justified by evidence.
+
+Standard architecture may use ports/adapters or other abstractions for a concrete boundary, variation, reuse, or testing need. It does not require a full Clean/Hexagonal structure.
 
 ### Verify
 
 Verify:
 
 - refreshes context/dependencies through the same cache/delta engine,
-- captures dependency state after changes,
-- compares dependency snapshots,
+- captures dependency state after changes when a valid pre-implementation baseline exists,
+- compares dependency snapshots or reports the unavailable comparison,
 - detects new cycles,
 - runs configured lint/type/test/build commands,
-- reviews the final diff,
-- records `verification.json`.
+- reviews unstaged and staged diffs plus relevant untracked files against the initial working-tree record,
+- records runtime results in `verification.json` and criterion-by-criterion evidence in agent-written `acceptance.md`.
 
 A `CACHE_HIT` does not skip verification commands.
+
+Runtime status and acceptance results are reported separately. Each criterion is `met`, `unmet`, or `unverified`, with the actual evidence and limitations. Passing configured commands alone does not complete a task with missing required evidence. Subsequent code/test/configuration edits require rerunning affected checks and final runtime verification; documentation-only edits need the relevant document checks.
+
+Recovery follows the cause: code defects return to build; scope/criteria errors return to plan; missing verification configuration requires established project checks; environment failures require diagnosis of the missing tool/configuration. Missing runtime uses project-native checks with an explicit runtime-verification limitation. A missing/invalid baseline after edits is reported, never fabricated. Retry only when a concrete diagnosis or change provides a path forward; otherwise report the blocker and needed action.
 
 ## Change modes
 
@@ -656,19 +672,19 @@ Tests should assert observable behavior rather than internal call counts or impl
 ```bash
 python .vibe/tools/vibe.py detect
 python .vibe/tools/vibe.py task start --mode bug_fix --request "stop-loss gap fill is wrong"
-python .vibe/tools/vibe.py context
+python .vibe/tools/vibe.py context --summary
 python .vibe/tools/vibe.py adapter
 python .vibe/tools/vibe.py framework
 python .vibe/tools/vibe.py architecture
 python .vibe/tools/vibe.py state
-python .vibe/tools/vibe.py deps
+python .vibe/tools/vibe.py deps --summary
 python .vibe/tools/vibe.py relevant
 python .vibe/tools/vibe.py relevant src/orders/service.py
 python .vibe/tools/vibe.py relevant --query "fix order cancellation"
 python .vibe/tools/vibe.py impact
 python .vibe/tools/vibe.py snapshot before
 python .vibe/tools/vibe.py snapshot after
-python .vibe/tools/vibe.py verify
+python .vibe/tools/vibe.py verify --summary
 python .vibe/tools/vibe.py status
 python .vibe/tools/vibe.py rebuild
 ```
@@ -678,6 +694,10 @@ Important commands:
 - `state` — shows whether persistent context/dependencies will be reused or refreshed.
 - `relevant` — builds bounded task context.
 - `rebuild` — forces full context/dependency reconstruction for troubleshooting or large structural changes.
+
+`context`, `deps`, and `verify` accept mutually exclusive `--summary` and `--quiet` flags after the command. Default output remains the full JSON. `--summary` prints counts/status and the artifact path, omitting graph details, file lists, and command logs; `--quiet` suppresses stdout. Both still write full artifacts and preserve exit codes and stderr errors. Verification exit codes are `0` for `PASS_VERIFIED`, `1` for failed verification/runtime errors, and `3` for missing command configuration. On failure, read the relevant command results in `verification.json` rather than treating a quiet command as success.
+
+The verification summary includes `dependency_comparison_available`; when false, its new-cycle count does not establish that no new cycles were introduced.
 
 ## Dependency analysis
 
@@ -753,16 +773,18 @@ For frontend projects, useful native tooling includes ESLint, TypeScript/Vue/Sve
 Before implementation:
 
 ```bash
-python .vibe/tools/vibe.py deps
+python .vibe/tools/vibe.py deps --summary
 python .vibe/tools/vibe.py snapshot before
 ```
 
 After implementation:
 
 ```bash
-python .vibe/tools/vibe.py deps
+python .vibe/tools/vibe.py deps --summary
 python .vibe/tools/vibe.py snapshot after
 ```
+
+Snapshots refresh current dependencies themselves. `snapshot before` preserves an existing valid baseline unchanged; it refuses to overwrite an invalid baseline. `snapshot after` and dependency comparison require a valid original baseline and never substitute an empty graph for missing evidence. Do not create `snapshot before` after implementation has started. A continuation reuses the current task; a retry or revised plan is not a new task.
 
 The diff includes:
 
@@ -783,12 +805,20 @@ Possible statuses:
 `PASS_VERIFIED` is allowed only when:
 
 1. deterministic context/dependency work completes,
-2. forbidden new cycles are absent,
-3. required verification commands are configured,
+2. the available before/after comparison finds no forbidden new cycles,
+3. at least one verification command is configured,
 4. those commands actually run,
 5. every required command succeeds.
 
 A cache hit is never sufficient evidence for `PASS_VERIFIED`.
+
+Verification runs configured commands before capturing the final dependency graph and after snapshot. Each command's before/after input fingerprints are recorded. If any command changes indexed files or runtime configuration, the result is `FAIL_VERIFICATION` with `rerun_required: true` and `rerun_commands` listing all configured checks. Review the final changes and rerun those checks; passing requires stable inputs. Put disposable command output in ignored directories so it is not treated as a verification input.
+
+`verification.json` includes `task_id` and `source_fingerprint` (SHA-256 over the indexed file paths/content and runtime configuration, within the configured file limit). `status.verification_current` checks both against the current task and files; it indicates whether the report is current, not whether it passed. The verify summary includes these identifiers and `rerun_required`. Executables are resolved through PATH/PATHEXT before execution, including Windows `.CMD` package-manager shims, without enabling `shell=True`. CI covers Linux and Windows.
+
+An empty command list returns `NEEDS_VERIFICATION_CONFIG` (CLI exit code `3`), even when `verification.require_commands` is `false`. That setting cannot waive the requirement for executed checks before reporting `PASS_VERIFIED`.
+
+Without an original baseline, standalone verification can still report passing configured checks with `dependency_diff: null`; this is not evidence about newly introduced cycles. Skills report that limitation and any unmet/unverified acceptance criteria separately instead of declaring the whole task complete. An existing invalid baseline produces an error and is preserved for diagnosis.
 
 ## Repository layout
 
@@ -989,7 +1019,9 @@ The installer:
 - leaves unrelated project files untouched,
 - preserves existing project-owned instructions/config,
 - reports managed-file conflicts,
-- supports `--dry-run`,
+- supports `--dry-run`, including Claude bundles without creating directories or overwriting ZIPs,
+- preserves conflicting `install-manifest.json` unless `--force` is supplied,
+- excludes `__pycache__`, `.pyc`, and `.pyo` from installed files and bundles,
 - only refreshes kit-managed files with `--force`.
 
 Review the target repository diff before committing.

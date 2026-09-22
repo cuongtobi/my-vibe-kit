@@ -34,7 +34,6 @@
     "commands": []
   },
   "tasks": {
-    "keep_history": true,
     "auto_load_history": false
   }
 }

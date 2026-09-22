@@ -18,17 +18,32 @@ Complete one software change with controlled scope and runtime evidence.
    - `bug_fix`: correct unintended behavior.
    - `refactor`: restructure while preserving behavior.
    - `hotfix`: urgent bug fix where scope must be especially small.
-3. Apply the sibling `plan` skill first. If the host cannot invoke sibling skills directly, read `../plan/SKILL.md` and follow it.
-4. Do not implement until the plan identifies the target, relevant dependencies, impact, constraints, and verification strategy.
+3. Apply the sibling `plan` skill first. If the host cannot invoke sibling skills directly, read `../plan/SKILL.md` and follow it. Read the current task before creating one; continue the same objective in place and preserve its original baselines.
+4. Do not implement until the plan identifies targets, dependencies, impact, constraints, acceptance criteria, and their verification evidence. A request to implement authorizes this workflow within its scope without a second plan approval. A planning-only request ends after plan; honor explicit user approval boundaries and ask only for missing decisions that materially affect the outcome.
 5. Apply the sibling `build` skill.
 6. Apply the sibling `verify` skill.
-7. If verification fails, return only the failures and necessary evidence to the build procedure. Do not reopen unrelated scope.
+7. Route gaps and failures by cause using the table below. Keep the existing task and baseline during retries; do not reopen unrelated scope.
 8. Finish with a concise summary of:
    - mode,
    - files/areas changed,
    - tests/checks actually run,
    - verification status,
+   - acceptance criteria met, unmet, or unverified,
    - any unresolved risk.
+
+## Recovery routing
+
+| Situation | Next action |
+| --- | --- |
+| A check exposes a code defect or new cycle | Return the failure and evidence to build, then verify the fix. |
+| The target or acceptance criteria are wrong/incomplete | Update plan and impact within the same task, preserving baselines; clarify only a material unresolved decision. |
+| `NEEDS_VERIFICATION_CONFIG` | Identify established project check commands; configure them within the authorized scope, then verify. Do not substitute a no-op command or edit application code to bypass this status. |
+| A command cannot run because of the environment | Diagnose the specific missing tool/configuration; resolve it within scope or report the blocker and next required action. |
+| Runtime is absent | Use scoped inspection and the project's own checks; distinguish manual evidence from runtime verification and do not invent a runtime status. |
+| Relevant context is empty or unrelated | Search likely filenames/symbols with bounded queries, identify explicit targets, and rerun relevant/impact when available. |
+| A baseline is missing or invalid after implementation began | Preserve available evidence and report the unavailable comparison. Never manufacture a pre-change baseline from current code. Restore one only from authentic pre-change evidence. |
+
+Retry when a concrete diagnosis or change justifies another attempt. If the same blocker remains and no new evidence or authorized remedy is available, report what was attempted and what is needed; do not cycle through build/verify without progress.
 
 ## Mode-specific invariants
 

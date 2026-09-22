@@ -7,15 +7,17 @@ description: Implements the current planned code change with minimal scope and a
 
 ## Goal
 
-Implement the approved plan with the smallest correct diff.
+Implement the user's requested change within the planned scope with the smallest correct diff.
+
+An implementation request authorizes proceeding through plan, build, and verify within that scope; a separate approval of the plan is not required. Respect an explicit planning-only request or user-requested approval boundary. Ask only for a missing decision that materially affects behavior, compatibility, or scope, and continue independent work when possible.
 
 ## Before editing
 
 1. Read `AGENTS.md`.
-2. Read `.vibe/runtime/current-task.json` and only that task's plan/impact artifacts when present. Do not scan historical task folders.
-3. Read `.vibe/runtime/relevant-context.json` and use it as the initial bounded source/test scope.
+2. Read `.vibe/runtime/current-task.json` and only that task's plan/impact artifacts when present. Reuse the current task for a continuation; do not reset its dependency or working-tree baseline. If the plan is missing or materially outdated, apply the plan procedure within the existing authorization before editing. Do not scan historical task folders.
+3. Read `.vibe/runtime/relevant-context.json` when available and use it as the initial bounded source/test scope; otherwise start from the plan's identified files and project-native inspection.
 4. Read `.vibe/runtime/architecture-policy.json` when present.
-5. Confirm the target scope and constraints.
+5. Check the target scope, acceptance criteria, and `working-tree-before.md` against the user's request. Preserve pre-existing staged, unstaged, and untracked work, including unrelated hunks in a target file. Do not reset, stage, or discard user changes to simplify the diff.
 6. If new evidence changes the scope materially, update impact analysis before editing outside the plan.
 
 ## Architecture and clean-code rules
@@ -39,6 +41,7 @@ For greenfield/new modules, follow the effective architecture policy:
 - Do not silently modify public APIs, persisted schemas, wire formats, permissions, or configuration compatibility.
 - Avoid unrelated formatting/refactors.
 - Keep changes reviewable.
+- Implement the plan's observable acceptance criteria and maintain their evidence mapping. If a requirement changes, update the plan and affected checks rather than silently dropping the criterion.
 - Expand beyond the bounded relevant-context file set only when a concrete dependency, consumer, failing test, or contract requires it.
 - Never read all historical `.vibe/tasks/` as background context.
 
@@ -72,7 +75,7 @@ Patch only what is needed to remove the fault. Defer cleanup.
 
 ## After editing
 
-- Inspect `git diff`.
-- Check for unexpected files.
+- Inspect `git diff`, `git diff --cached`, and `git status --short --untracked-files=all`; read relevant untracked files separately. Compare against the initial working-tree record so pre-existing changes are not attributed to this task.
 - Run the most focused tests available.
 - Hand off to the verify skill; implementation is not proof of completion.
+- Code, test, or configuration changes after verification invalidate evidence for affected criteria. Rerun the affected checks and final runtime verification before reporting completion. For documentation-only edits, rerun the relevant document checks without repeating unrelated tests.

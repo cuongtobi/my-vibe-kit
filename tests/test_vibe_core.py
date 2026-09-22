@@ -469,6 +469,185 @@ class VibeCoreTests(unittest.TestCase):
         self.assertEqual(report["architecture"]["profile"], "standard")
         self.assertEqual(report["architecture"]["pattern"], "modular-layered")
 
+    def test_verify_cli_requires_evidence_even_when_commands_are_optional(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        config_path = root / ".vibe/config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["verification"] = {"require_commands": False, "commands": []}
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "runtime/vibe.py"), "--root", str(root), "verify"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["status"], "NEEDS_VERIFICATION_CONFIG")
+        self.assertEqual(report["commands_run"], 0)
+
+        config["verification"]["commands"] = [[sys.executable, "-c", "print('checked')"]]
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        report = vibe_core.verify(root)
+        self.assertEqual(report["status"], "PASS_VERIFIED")
+        self.assertEqual(report["commands_run"], 1)
+
+    def test_python_import_statement_records_every_module(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        for name, content in {
+            "main.py": "import a as first, b as second\n",
+            "a.py": "value = 1\n",
+            "b.py": "value = 2\n",
+        }.items():
+            (root / name).write_text(content, encoding="utf-8")
+
+        graph = vibe_core.dependency_graph(root)
+        self.assertEqual(
+            vibe_core.edge_set(graph), {("main.py", "a.py"), ("main.py", "b.py")},
+        )
+        impact = vibe_core.impact_analysis(root, ["b.py"])
+        self.assertIn("main.py", impact["affected_reverse_dependencies"])
+
+    def test_python_from_import_records_package_and_all_submodules(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        pkg = root / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("from . import a, b\n", encoding="utf-8")
+        (pkg / "a.py").write_text("value = 1\n", encoding="utf-8")
+        (pkg / "b.py").write_text("value = 2\n", encoding="utf-8")
+        (root / "consumer.py").write_text("from pkg import a as first, b\n", encoding="utf-8")
+        (root / "symbols.py").write_text("from pkg.a import value\n", encoding="utf-8")
+        (root / "wildcard.py").write_text("from pkg import *\n", encoding="utf-8")
+
+        graph = vibe_core.dependency_graph(root)
+        self.assertEqual(vibe_core.edge_set(graph), {
+            ("pkg/__init__.py", "pkg/a.py"),
+            ("pkg/__init__.py", "pkg/b.py"),
+            ("consumer.py", "pkg/__init__.py"),
+            ("consumer.py", "pkg/a.py"),
+            ("consumer.py", "pkg/b.py"),
+            ("symbols.py", "pkg/a.py"),
+            ("wildcard.py", "pkg/__init__.py"),
+        })
+
+    def test_incremental_new_module_detects_cycle_and_fails_verification(self):
+        for extension, imports in (
+            ("py", ("import b\n", "import a\n")),
+            ("js", ("import './b';\n", "import './a';\n")),
+        ):
+            with self.subTest(extension=extension):
+                temp, root = self.make_repo()
+                self.addCleanup(temp.cleanup)
+                a, b = "a." + extension, "b." + extension
+                (root / a).write_text(imports[0], encoding="utf-8")
+                config_path = root / ".vibe/config.json"
+                config = json.loads(config_path.read_text(encoding="utf-8"))
+                config["verification"]["commands"] = [[sys.executable, "-c", "print('checked')"]]
+                config_path.write_text(json.dumps(config), encoding="utf-8")
+                self.init_git(root)
+                vibe_core.start_task(root, "feature", "add missing module")
+                vibe_core.dependency_graph(root)
+                vibe_core.snapshot_dependencies(root, "before")
+
+                (root / b).write_text(imports[1], encoding="utf-8")
+                graph = vibe_core.dependency_graph(root)
+                self.assertEqual(graph["cache"]["mode"], "INCREMENTAL_REFRESH")
+                self.assertEqual(vibe_core.edge_set(graph), {(a, b), (b, a)})
+                self.assertEqual(graph["cycles"], [[a, b]])
+                report = vibe_core.verify(root)
+                self.assertEqual(report["status"], "FAIL_VERIFICATION")
+                self.assertEqual(report["new_cycles"], [[a, b]])
+                rebuilt = vibe_core.dependency_graph(root, force=True)
+                self.assertEqual(graph["edges"], rebuilt["edges"])
+
+    def test_incremental_module_deletion_resolves_existing_imports_again(self):
+        cases = [
+            ("main.py", "import pkg.child\n", "pkg/child.py", "pkg/__init__.py"),
+            ("main.js", "import './child';\n", "child.ts", "child.js"),
+        ]
+        for consumer, statement, removed, fallback in cases:
+            with self.subTest(consumer=consumer):
+                temp, root = self.make_repo()
+                self.addCleanup(temp.cleanup)
+                for name, content in {consumer: statement, removed: "", fallback: ""}.items():
+                    path = root / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(content, encoding="utf-8")
+                self.init_git(root)
+                before = vibe_core.dependency_graph(root)
+                self.assertIn((consumer, removed), vibe_core.edge_set(before))
+
+                (root / removed).unlink()
+                graph = vibe_core.dependency_graph(root)
+                self.assertEqual(graph["cache"]["mode"], "INCREMENTAL_REFRESH")
+                self.assertEqual(vibe_core.edge_set(graph), {(consumer, fallback)})
+                self.assertNotIn(removed, graph["nodes"])
+
+    def test_incremental_module_rename_resolves_unchanged_consumer(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "main.py").write_text("import old\nimport new\n", encoding="utf-8")
+        (root / "old.py").write_text("value = 1\n", encoding="utf-8")
+        self.init_git(root)
+        vibe_core.dependency_graph(root)
+
+        (root / "old.py").rename(root / "new.py")
+        self.assertEqual(self.git(root, "add", "old.py", "new.py").returncode, 0)
+        graph = vibe_core.dependency_graph(root)
+        self.assertEqual(graph["cache"]["mode"], "INCREMENTAL_REFRESH")
+        self.assertEqual(vibe_core.edge_set(graph), {("main.py", "new.py")})
+        self.assertNotIn("old.py", graph["nodes"])
+
+    def test_invalid_dependency_cache_rebuilds_with_or_without_git_changes(self):
+        for corrupt in ("{invalid-json", "{}", "[]", '{"nodes": [], "edges": "invalid"}'):
+            for dirty in (False, True):
+                with self.subTest(corrupt=corrupt, dirty=dirty):
+                    temp, root = self.make_repo()
+                    self.addCleanup(temp.cleanup)
+                    (root / "a.py").write_text("import b\n", encoding="utf-8")
+                    (root / "b.py").write_text("import c\n", encoding="utf-8")
+                    (root / "c.py").write_text("value = 1\n", encoding="utf-8")
+                    self.init_git(root)
+                    vibe_core.dependency_graph(root)
+                    (root / ".vibe/state/last-dependency.json").write_text(corrupt, encoding="utf-8")
+                    if dirty:
+                        (root / "a.py").write_text("import c\n", encoding="utf-8")
+
+                    graph = vibe_core.dependency_graph(root)
+                    self.assertEqual(graph["cache"]["mode"], "FULL_REBUILD")
+                    self.assertEqual(vibe_core.edge_set(graph), {
+                        ("a.py", "c.py" if dirty else "b.py"), ("b.py", "c.py"),
+                    })
+                    self.assertEqual(graph["nodes"], ["a.py", "b.py", "c.py"])
+                    self.assertEqual(vibe_core.dependency_graph(root)["cache"]["mode"], "CACHE_HIT")
+
+    def test_empty_dependency_graph_is_a_valid_cache(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        self.init_git(root)
+        vibe_core.dependency_graph(root)
+        graph = vibe_core.dependency_graph(root)
+        self.assertEqual(graph["cache"]["mode"], "CACHE_HIT")
+        self.assertEqual(graph["nodes"], [])
+        self.assertEqual(graph["edges"], [])
+
+    def test_old_scanner_cache_is_rebuilt_after_upgrade(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "a.py").write_text("value = 1\n", encoding="utf-8")
+        self.init_git(root)
+        vibe_core.dependency_graph(root)
+        index_path = root / ".vibe/state/index-state.json"
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        index["scanner_version"] = "incremental-v1"
+        index_path.write_text(json.dumps(index), encoding="utf-8")
+
+        graph = vibe_core.dependency_graph(root)
+        self.assertEqual(graph["cache"]["mode"], "FULL_REBUILD")
+        self.assertEqual(graph["nodes"], ["a.py"])
+
 
 if __name__ == "__main__":
     unittest.main()

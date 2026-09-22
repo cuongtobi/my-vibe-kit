@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 STATE_SCHEMA_VERSION = 1
-SCANNER_VERSION = "incremental-v1"
+SCANNER_VERSION = "incremental-v3"
 
 CACHE_FILES = {
     "context": "last-context.json",
@@ -37,7 +37,7 @@ def state_dir(root: Path) -> Path:
 def _json_load(path: Path, default: object = None) -> object:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return default
 
 
@@ -58,9 +58,6 @@ def _git(root: Path, *args: str) -> Optional[str]:
             cwd=str(root),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             timeout=60,
             check=False,
         )
@@ -68,11 +65,13 @@ def _git(root: Path, *args: str) -> Optional[str]:
         return None
     if proc.returncode != 0:
         return None
-    return proc.stdout.rstrip("\r\n")
+    output = proc.stdout.decode("utf-8", errors="replace")
+    return output if "-z" in args else output.rstrip("\r\n")
 
 
 def _normalized(path: str) -> str:
-    return Path(path.strip().strip('"')).as_posix()
+    # Git -z paths are literal, including leading/trailing whitespace and quotes.
+    return Path(path).as_posix() if path else ""
 
 
 def _ignored_state_path(path: str) -> bool:
@@ -82,20 +81,27 @@ def _ignored_state_path(path: str) -> bool:
     return any(value.startswith(prefix) for prefix in IGNORED_STATE_PREFIXES)
 
 
-def _parse_status_line(line: str) -> Optional[Dict[str, str]]:
-    if len(line) < 4:
+def _parse_status(text: str) -> List[Dict[str, str]]:
+    records = iter(text.split("\0"))
+    result = []
+    for record in records:
+        if len(record) < 4:
+            continue
+        status, path = record[:2], _normalized(record[3:])
+        # Porcelain v1 -z emits the destination before the rename/copy source.
+        old_path = _normalized(next(records, "")) if "R" in status or "C" in status else ""
+        if _ignored_state_path(path) and (not old_path or _ignored_state_path(old_path)):
+            continue
+        result.append({"status": status, "path": path, "old_path": old_path})
+    return result
+
+
+def repository_files(root: Path) -> Optional[List[str]]:
+    """Tracked files plus non-ignored untracked files; None outside Git."""
+    output = _git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+    if output is None:
         return None
-    status = line[:2]
-    raw = line[3:]
-    old_path = ""
-    path = raw
-    if " -> " in raw:
-        old_path, path = raw.split(" -> ", 1)
-    path = _normalized(path)
-    old_path = _normalized(old_path) if old_path else ""
-    if _ignored_state_path(path) and (not old_path or _ignored_state_path(old_path)):
-        return None
-    return {"status": status, "path": path, "old_path": old_path}
+    return sorted({_normalized(path) for path in output.split("\0") if path})
 
 
 def _file_sha256(root: Path, relative: str) -> Optional[str]:
@@ -114,7 +120,7 @@ def _file_sha256(root: Path, relative: str) -> Optional[str]:
 
 def current_repo_state(root: Path) -> Dict[str, object]:
     head = _git(root, "rev-parse", "HEAD")
-    status_text = _git(root, "status", "--porcelain=v1", "--untracked-files=all")
+    status_text = _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
     if head is None and status_text is None:
         return {
             "git": False,
@@ -124,10 +130,7 @@ def current_repo_state(root: Path) -> Dict[str, object]:
         }
 
     dirty = []
-    for line in (status_text or "").splitlines():
-        parsed = _parse_status_line(line)
-        if not parsed:
-            continue
+    for parsed in _parse_status(status_text or ""):
         parsed["sha256"] = _file_sha256(root, parsed["path"])
         dirty.append(parsed)
     dirty.sort(key=lambda item: (item["path"], item["old_path"], item["status"]))
@@ -135,6 +138,7 @@ def current_repo_state(root: Path) -> Dict[str, object]:
     payload = {
         "head": head,
         "dirty": dirty,
+        "config_sha256": _file_sha256(root, ".vibe/config.json"),
     }
     fingerprint = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -143,6 +147,7 @@ def current_repo_state(root: Path) -> Dict[str, object]:
         "git": True,
         "head": head,
         "dirty": dirty,
+        "config_sha256": payload["config_sha256"],
         "fingerprint": fingerprint,
     }
 
@@ -163,7 +168,8 @@ def load_index_state(root: Path) -> Dict[str, object]:
             "scanner_version": SCANNER_VERSION,
             "artifacts": {},
         }
-    data.setdefault("artifacts", {})
+    if not isinstance(data.get("artifacts"), dict):
+        data["artifacts"] = {}
     return data
 
 
@@ -198,25 +204,20 @@ def write_cache(
     artifacts[artifact] = {
         "fingerprint": state.get("fingerprint"),
         "repo_state": state,
+        "sha256": _file_sha256(root, cache_path(root, artifact).relative_to(root).as_posix()),
     }
     save_index_state(root, index)
 
 
 def _parse_name_status(text: str) -> Set[str]:
     paths: Set[str] = set()
-    for line in text.splitlines():
-        if not line.strip():
+    records = iter(text.split("\0"))
+    for code in records:
+        if not code:
             continue
-        parts = line.split("\t")
-        code = parts[0]
-        if code.startswith(("R", "C")) and len(parts) >= 3:
-            for raw in parts[1:3]:
-                value = _normalized(raw)
-                if not _ignored_state_path(value):
-                    paths.add(value)
-        elif len(parts) >= 2:
-            value = _normalized(parts[-1])
-            if not _ignored_state_path(value):
+        for _ in range(2 if code.startswith(("R", "C")) else 1):
+            value = _normalized(next(records, ""))
+            if value and value != "." and not _ignored_state_path(value):
                 paths.add(value)
     return paths
 
@@ -244,6 +245,8 @@ def changed_paths_between(
 ) -> Optional[List[str]]:
     if not previous.get("git") or not current.get("git"):
         return None
+    if previous.get("config_sha256") != current.get("config_sha256"):
+        return None
 
     changed: Set[str] = set()
     previous_head = previous.get("head")
@@ -255,6 +258,7 @@ def changed_paths_between(
             root,
             "diff",
             "--name-status",
+            "-z",
             "--find-renames",
             str(previous_head) + ".." + str(current_head),
         )
@@ -303,6 +307,28 @@ def cache_status(
             "repo_state": current,
         }
 
+    # Checksums cover all persisted bytes, including valid-but-incomplete JSON.
+    # Context and its supporting artifacts must also come from the same state.
+    required = [artifact]
+    if artifact in {"context", "dependency"}:
+        required += ["context", "files", "framework", "adapter", "architecture"]
+    artifacts = index["artifacts"]
+    context_meta = artifacts.get("context") or {}
+    for name in set(required):
+        item = artifacts.get(name)
+        digest = _file_sha256(root, cache_path(root, name).relative_to(root).as_posix())
+        if (
+            not isinstance(item, dict)
+            or not digest or item.get("sha256") != digest
+            or load_cache(root, name) is None
+            or (name != "dependency" and isinstance(context_meta, dict)
+                and item.get("fingerprint") != context_meta.get("fingerprint"))
+        ):
+            return {
+                "mode": "FULL_REBUILD", "reason": "cache-bundle-invalid",
+                "changed_files": [], "repo_state": current,
+            }
+
     if meta.get("fingerprint") == current.get("fingerprint") and current.get("fingerprint"):
         return {
             "mode": "CACHE_HIT",
@@ -318,6 +344,14 @@ def cache_status(
             "reason": "previous-repository-state-missing",
             "changed_files": [],
             "repo_state": current,
+        }
+
+    config = _json_load(root / ".vibe" / "config.json", {})
+    index_config = config.get("index", {}) if isinstance(config, dict) else {}
+    if isinstance(index_config, dict) and index_config.get("use_git_delta") is False:
+        return {
+            "mode": "FULL_REBUILD", "reason": "git-delta-disabled",
+            "changed_files": [], "repo_state": current,
         }
 
     delta = changed_paths_between(root, previous, current)
