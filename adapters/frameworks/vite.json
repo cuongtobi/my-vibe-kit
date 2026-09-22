@@ -1,0 +1,27 @@
+{
+  "id": "vite",
+  "kind": "tooling-framework",
+  "language": "javascript-or-typescript",
+  "detect": [
+    "package dependency vite"
+  ],
+  "context": [
+    "entrypoints",
+    "environment-variables",
+    "aliases",
+    "assets",
+    "build-config",
+    "tests"
+  ],
+  "architecture_hints": [
+    "treat Vite as tooling rather than a reason to reshape feature architecture",
+    "keep import aliases and env access explicit",
+    "use framework adapter rules for UI structure"
+  ],
+  "verification": [
+    "package lint",
+    "package typecheck",
+    "package test",
+    "package build"
+  ]
+}
