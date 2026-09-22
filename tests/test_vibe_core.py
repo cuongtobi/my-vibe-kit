@@ -175,6 +175,66 @@ class VibeCoreTests(unittest.TestCase):
                 finally:
                     temp.cleanup()
 
+    def test_greenfield_architecture_defaults_to_standard_modular_layered(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        policy = vibe_core.architecture_policy(root)
+        self.assertEqual(policy["effective_profile"], "standard")
+        self.assertEqual(policy["pattern"], "modular-layered")
+        self.assertEqual(policy["module_style"], "feature-first")
+        self.assertFalse(policy["auto_strict_triggered"])
+        self.assertTrue(policy["clean_code_rules"])
+
+    def test_explicit_strict_profile_uses_hexagonal_policy(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        config = json.loads((root / ".vibe/config.json").read_text(encoding="utf-8"))
+        config["architecture"] = {
+            "profile": "strict",
+            "module_style": "feature-first",
+            "default_pattern": "modular-layered",
+            "strict_pattern": "hexagonal",
+        }
+        (root / ".vibe/config.json").write_text(json.dumps(config), encoding="utf-8")
+        policy = vibe_core.architecture_policy(root)
+        self.assertEqual(policy["effective_profile"], "strict")
+        self.assertEqual(policy["pattern"], "hexagonal")
+        self.assertTrue(any("Domain is framework-independent" in rule for rule in policy["dependency_rules"]))
+
+    def test_auto_profile_promotes_large_project_to_strict(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        src = root / "src"
+        src.mkdir()
+        (src / "a.py").write_text("a = 1\n", encoding="utf-8")
+        (src / "b.py").write_text("b = 2\n", encoding="utf-8")
+        config = json.loads((root / ".vibe/config.json").read_text(encoding="utf-8"))
+        config["architecture"] = {
+            "profile": "auto",
+            "default_profile": "standard",
+            "strict_pattern": "hexagonal",
+            "allow_auto_strict": True,
+            "strict_thresholds": {"source_files": 2, "feature_roots": 99},
+        }
+        (root / ".vibe/config.json").write_text(json.dumps(config), encoding="utf-8")
+        policy = vibe_core.architecture_policy(root)
+        self.assertTrue(policy["auto_strict_triggered"])
+        self.assertEqual(policy["effective_profile"], "strict")
+        self.assertEqual(policy["pattern"], "hexagonal")
+
+    def test_laravel_architecture_prefers_framework_native_structure(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "composer.json").write_text(
+            json.dumps({"require": {"laravel/framework": "^12.0"}}),
+            encoding="utf-8",
+        )
+        (root / "artisan").write_text("", encoding="utf-8")
+        policy = vibe_core.architecture_policy(root)
+        self.assertEqual(policy["effective_profile"], "standard")
+        self.assertIn("controllers/requests", policy["recommended_structure"])
+        self.assertTrue(any("Laravel conventions" in note for note in policy["framework_guidance"][0]["notes"]))
+
     def test_new_cycle_is_detected_in_dependency_diff(self):
         temp, root = self.make_repo()
         self.addCleanup(temp.cleanup)
