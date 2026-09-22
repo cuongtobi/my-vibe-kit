@@ -7,7 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-IGNORE_DIRS = {'.git','.hg','.svn','.idea','.vscode','.tox','.nox','.mypy_cache','.pytest_cache','.ruff_cache','.venv','venv','env','__pycache__','node_modules','dist','build','coverage','.next','.nuxt','target','vendor'}
+IGNORE_DIRS = {'.git','.vibe','.agents','.claude','.hg','.svn','.idea','.vscode','.tox','.nox','.mypy_cache','.pytest_cache','.ruff_cache','.venv','venv','env','__pycache__','node_modules','dist','build','coverage','.next','.nuxt','target','vendor'}
 
 
 def _text(path: Path) -> str:
