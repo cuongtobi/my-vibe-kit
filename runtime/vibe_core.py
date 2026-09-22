@@ -40,6 +40,7 @@ IGNORE_DIRS = {
     ".next",
     ".nuxt",
     "target",
+    "vendor",
 }
 SOURCE_EXTENSIONS = {
     ".py",
@@ -211,6 +212,9 @@ def is_test_file(path: Path) -> bool:
         any(part in TEST_HINTS for part in lowered_parts)
         or name.startswith("test_")
         or name.endswith("_test.py")
+        or name.endswith("_test.go")
+        or name.endswith("test.java")
+        or name.endswith("tests.java")
         or ".test." in name
         or ".spec." in name
     )
@@ -231,6 +235,9 @@ def project_context(root: Path) -> Dict[str, object]:
         "setup.cfg",
         "package.json",
         "tsconfig.json",
+        "composer.json",
+        "composer.lock",
+        "Pipfile",
         "Cargo.toml",
         "go.mod",
         "pom.xml",
@@ -575,6 +582,15 @@ def impact_analysis(root: Path, targets: Optional[Sequence[str]] = None) -> Dict
         all_test_files = list(context.get("test_files") or [])
 
     impacted_set = set(selected) | set(affected)
+    framework_map = json_load(runtime_dir(root) / "framework-map.json", None)
+    if not isinstance(framework_map, dict):
+        project_context(root)
+        framework_map = json_load(runtime_dir(root) / "framework-map.json", {})
+    affected_routes = [
+        route for route in (framework_map.get("routes") or [])
+        if isinstance(route, dict) and route.get("file") in impacted_set
+    ]
+
     for test in all_test_files:
         if test in impacted_set:
             tests.append(test)
@@ -605,6 +621,8 @@ def impact_analysis(root: Path, targets: Optional[Sequence[str]] = None) -> Dict
         "direct_consumers": direct_consumers,
         "affected_reverse_dependencies": affected,
         "affected_tests": sorted(set(tests)),
+        "affected_routes": affected_routes,
+        "frameworks": framework_map.get("frameworks", []) if isinstance(framework_map, dict) else [],
         "depth": depth,
     }
     json_dump(runtime_dir(root) / "impact.json", data)
