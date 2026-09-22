@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,6 +12,24 @@ import vibe_core  # noqa: E402
 
 
 class VibeCoreTests(unittest.TestCase):
+    def git(self, root, *args):
+        return subprocess.run(
+            ["git"] + list(args),
+            cwd=str(root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+
+    def init_git(self, root):
+        self.assertEqual(self.git(root, "init").returncode, 0)
+        self.assertEqual(self.git(root, "config", "user.email", "vibe@example.com").returncode, 0)
+        self.assertEqual(self.git(root, "config", "user.name", "Vibe Test").returncode, 0)
+        self.assertEqual(self.git(root, "add", ".").returncode, 0)
+        commit = self.git(root, "commit", "-m", "baseline")
+        self.assertEqual(commit.returncode, 0, commit.stdout + commit.stderr)
+
     def make_repo(self):
         temp = tempfile.TemporaryDirectory()
         root = Path(temp.name)
@@ -239,6 +258,89 @@ class VibeCoreTests(unittest.TestCase):
         self.assertEqual(policy["effective_profile"], "standard")
         self.assertIn("controllers/requests", policy["recommended_structure"])
         self.assertTrue(any("Laravel conventions" in note for note in policy["framework_guidance"][0]["notes"]))
+
+    def test_persistent_context_cache_hits_when_repository_is_unchanged(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        pkg = root / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        (pkg / "service.py").write_text("value = 1\n", encoding="utf-8")
+        self.init_git(root)
+
+        first_context = vibe_core.project_context(root)
+        first_graph = vibe_core.dependency_graph(root)
+        second_context = vibe_core.project_context(root)
+        second_graph = vibe_core.dependency_graph(root)
+
+        self.assertEqual(first_context["cache"]["mode"], "FULL_REBUILD")
+        self.assertEqual(first_graph["cache"]["mode"], "FULL_REBUILD")
+        self.assertEqual(second_context["cache"]["mode"], "CACHE_HIT")
+        self.assertEqual(second_graph["cache"]["mode"], "CACHE_HIT")
+        self.assertTrue((root / ".vibe/state/last-context.json").exists())
+        self.assertTrue((root / ".vibe/state/last-dependency.json").exists())
+        self.assertTrue((root / ".vibe/state/index-state.json").exists())
+
+    def test_python_dependency_refresh_is_incremental_after_single_file_change(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        pkg = root / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        (pkg / "a.py").write_text("from pkg.b import value\n", encoding="utf-8")
+        (pkg / "b.py").write_text("value = 1\n", encoding="utf-8")
+        (pkg / "c.py").write_text("value = 2\n", encoding="utf-8")
+        self.init_git(root)
+
+        vibe_core.project_context(root)
+        before = vibe_core.dependency_graph(root)
+        self.assertIn(
+            ("pkg/a.py", "pkg/b.py"),
+            {(item["from"], item["to"]) for item in before["edges"]},
+        )
+
+        (pkg / "a.py").write_text("from pkg.c import value\n", encoding="utf-8")
+        context = vibe_core.project_context(root)
+        after = vibe_core.dependency_graph(root)
+        edges = {(item["from"], item["to"]) for item in after["edges"]}
+
+        self.assertEqual(context["cache"]["mode"], "INCREMENTAL_REFRESH")
+        self.assertEqual(after["cache"]["mode"], "INCREMENTAL_REFRESH")
+        self.assertIn("pkg/a.py", after["cache"]["changed_files"])
+        self.assertIn(("pkg/a.py", "pkg/c.py"), edges)
+        self.assertNotIn(("pkg/a.py", "pkg/b.py"), edges)
+
+    def test_relevant_context_is_bounded_and_does_not_auto_load_history(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        config = json.loads((root / ".vibe/config.json").read_text(encoding="utf-8"))
+        config["context"].update({
+            "max_dependency_depth": 2,
+            "max_source_files": 2,
+            "max_test_files": 1,
+            "max_related_modules": 2,
+        })
+        config["tasks"]["auto_load_history"] = False
+        (root / ".vibe/config.json").write_text(json.dumps(config), encoding="utf-8")
+
+        orders = root / "src" / "orders"
+        orders.mkdir(parents=True)
+        (orders / "__init__.py").write_text("", encoding="utf-8")
+        (orders / "service.py").write_text("from orders.repo import value\n", encoding="utf-8")
+        (orders / "repo.py").write_text("value = 1\n", encoding="utf-8")
+        (orders / "extra.py").write_text("value = 2\n", encoding="utf-8")
+        tests = root / "tests"
+        tests.mkdir()
+        (tests / "test_orders.py").write_text("from orders.service import value\n", encoding="utf-8")
+        self.init_git(root)
+
+        vibe_core.start_task(root, "feature", "add orders workflow")
+        data = vibe_core.relevant_context(root)
+
+        self.assertLessEqual(len(data["source_files"]), 2)
+        self.assertLessEqual(len(data["test_files"]), 1)
+        self.assertFalse(data["history_policy"]["auto_load_history"])
+        self.assertTrue((root / ".vibe/runtime/relevant-context.json").exists())
 
     def test_new_cycle_is_detected_in_dependency_diff(self):
         temp, root = self.make_repo()
