@@ -6,12 +6,26 @@ Describe the project in 2-5 sentences. Keep this file durable and concise.
 
 ## Architecture invariants
 
+- For a new project, default to feature-first + modular layered architecture + framework-native conventions.
+- For an existing project, preserve existing module boundaries unless the task explicitly changes architecture.
+- Default new-project profile is `standard`; only use Clean/Hexagonal structure when the effective architecture profile is `strict`.
+- Prefer framework conventions over generic architecture ceremony.
+- Dependencies should move from presentation/transport toward application/business/data boundaries, never from lower-level infrastructure back into controllers/UI.
+- Keep cross-feature dependencies on public services/contracts rather than importing another feature's internals.
 - Preserve existing module boundaries unless the task explicitly changes architecture.
 - Do not silently change public APIs, persisted schemas, or external contracts.
 - Prefer existing abstractions and dependencies over introducing parallel ones.
 
 ## Coding rules
 
+- Use intent-revealing names and keep functions/modules focused.
+- Prefer guard clauses when they reduce deep nesting.
+- Keep controllers/routes/handlers thin; keep non-trivial business logic out of transport/UI code.
+- Avoid god services, circular dependencies, hidden global mutable state, and swallowed errors.
+- Do not add interfaces/repositories/wrappers without a concrete boundary, variation, reuse, or testing reason.
+- Keep configuration/secrets outside business logic.
+- Test behavior and important edge cases; comments should explain why, not narrate obvious code.
+- Prefer simple code over clever code.
 - Make the smallest correct change.
 - Do not perform unrelated cleanup during feature or bug work.
 - Every bug fix should add a regression test when practical.
