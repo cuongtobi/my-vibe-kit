@@ -1,0 +1,9 @@
+{
+  "id": "spring",
+  "kind": "framework",
+  "language": "java-or-kotlin",
+  "detect": ["Spring Boot or org.springframework dependency"],
+  "context": ["controllers", "services", "repositories", "components", "request-mappings", "configuration"],
+  "architecture_hints": ["track dependency-injection component graph", "use ArchUnit for enforceable package boundaries when practical"],
+  "verification": ["maven-or-gradle-test", "archunit-when-configured", "checkstyle-or-spotbugs"]
+}
