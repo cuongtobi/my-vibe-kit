@@ -1,0 +1,28 @@
+{
+  "id": "nuxt",
+  "kind": "framework",
+  "language": "javascript-or-typescript",
+  "detect": [
+    "package dependency nuxt"
+  ],
+  "context": [
+    "pages",
+    "layouts",
+    "components",
+    "composables",
+    "server-routes",
+    "plugins",
+    "middleware"
+  ],
+  "architecture_hints": [
+    "respect Nuxt file-system routing and server/client boundaries",
+    "keep reusable business behavior out of pages and layouts",
+    "treat server routes and runtime config as boundary code"
+  ],
+  "verification": [
+    "package lint",
+    "package typecheck",
+    "package test",
+    "package build"
+  ]
+}
