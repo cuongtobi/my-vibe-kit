@@ -11,14 +11,14 @@ from vibe_core import (
     detect_stack,
     impact_analysis,
     project_context,
+    relevant_context,
     repository_root,
     snapshot_dependencies,
     start_task,
     status,
     verify,
 )
-from vibe_architecture import architecture_policy
-from vibe_stacks import effective_adapter, framework_context
+from vibe_state import load_cache, state_summary
 
 
 def emit(data: object) -> None:
@@ -39,7 +39,13 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("deps", help="Build .vibe/runtime/dependency-map.json.")
     sub.add_parser("framework", help="Build framework-aware route/component context.")
     sub.add_parser("adapter", help="Resolve the active language + framework adapters.")
-    sub.add_parser("architecture", help="Resolve the effective architecture profile and clean-code policy.")
+    sub.add_parser("architecture", help="Read the effective cached architecture profile and clean-code policy.")
+    sub.add_parser("state", help="Show persistent cache state and whether context/dependencies can be reused.")
+    sub.add_parser("rebuild", help="Force a full rebuild of persistent context and dependency caches.")
+
+    relevant = sub.add_parser("relevant", help="Build bounded task context without loading the whole repository.")
+    relevant.add_argument("files", nargs="*", help="Optional explicit target files.")
+    relevant.add_argument("--query", help="Optional relevance query; defaults to the current task request.")
 
     impact = sub.add_parser("impact", help="Compute reverse dependency and test impact.")
     impact.add_argument("files", nargs="*", help="Target files. Defaults to changed git files.")
@@ -86,13 +92,33 @@ def main() -> int:
         emit(dependency_graph(repo))
         return 0
     if args.command == "framework":
-        emit(framework_context(repo))
+        project_context(repo)
+        emit(load_cache(repo, "framework", {}))
         return 0
     if args.command == "adapter":
-        emit(effective_adapter(repo))
+        project_context(repo)
+        emit(load_cache(repo, "adapter", {}))
         return 0
     if args.command == "architecture":
-        emit(architecture_policy(repo))
+        project_context(repo)
+        emit(load_cache(repo, "architecture", {}))
+        return 0
+    if args.command == "state":
+        emit(state_summary(repo))
+        return 0
+    if args.command == "rebuild":
+        context = project_context(repo, force=True)
+        graph = dependency_graph(repo, force=True)
+        emit({
+            "context_cache": context.get("cache"),
+            "dependency_cache": graph.get("cache"),
+            "source_files": context.get("source_file_count"),
+            "dependency_nodes": len(graph.get("nodes") or []),
+            "dependency_edges": len(graph.get("edges") or []),
+        })
+        return 0
+    if args.command == "relevant":
+        emit(relevant_context(repo, args.files or None, args.query))
         return 0
     if args.command == "impact":
         emit(impact_analysis(repo, args.files or None))
