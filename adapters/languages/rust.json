@@ -1,0 +1,14 @@
+{
+  "id": "rust",
+  "kind": "language",
+  "extensions": [".rs"],
+  "manifests": ["Cargo.toml", "Cargo.lock"],
+  "dependency": {
+    "baseline": "mod-and-crate-use-graph",
+    "recommended": ["cargo-metadata", "cargo-tree"]
+  },
+  "verification": {
+    "recommended": ["cargo-check", "cargo-test", "cargo-clippy"]
+  },
+  "framework_candidates": ["actix-web"]
+}
