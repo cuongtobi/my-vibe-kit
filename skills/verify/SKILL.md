@@ -31,6 +31,8 @@ Produce evidence that the change satisfies the request without introducing unexp
    - new cycles,
    - unexpected consumers.
 
+   The built-in graph is explicitly `static-best-effort` and advisory. A clean graph is not evidence that dynamic imports, DI bindings, generated routes/code, Rails/WordPress runtime registration, macros, or other framework magic are unaffected; use project-native tests/analyzers or direct checks for those paths when relevant.
+
    Without that baseline, report the missing comparison and inspect current dependencies as far as possible. Do not create a late `snapshot before`, overwrite an invalid baseline, or treat an empty graph as the original state. The runtime refuses invalid/missing-baseline snapshot comparisons.
 4. When the runtime is installed, run:
 
@@ -81,6 +83,7 @@ Never translate `NEEDS_VERIFICATION_CONFIG` into success.
 
 - Verify the current task and current diff; do not load unrelated historical task folders.
 - Cache reuse is an optimization only. Verification status still comes from commands that actually ran.
+- Static dependency evidence narrows review scope but never replaces runtime/framework verification.
 - A CACHE_HIT never implies PASS_VERIFIED.
 
 ## Constraints
