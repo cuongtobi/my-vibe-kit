@@ -62,7 +62,38 @@ Nếu project chưa có test/lint/typecheck command phù hợp, hãy sửa `.vib
 - Minimal-change implementation by default.
 - Runtime verification evidence before completion.
 - No mandatory Python packages beyond the standard library for the kit itself.
-- Optional integration with stronger ecosystem tools such as Grimp, Import Linter, dependency-cruiser, Nx, Ruff, Pyright, pytest, TypeScript, ESLint, and Vitest.
+- Optional integration with stronger ecosystem tools such as Grimp, Import Linter, dependency-cruiser, Nx, Deptrac, PHPStan/Larastan, ArchUnit, Cargo tooling, Go tooling, Ruff, Pyright, pytest, TypeScript, ESLint, and Vitest.
+
+## Supported languages and frameworks
+
+The workflow is language-agnostic, while the runtime now has stack-aware adapters and baseline dependency scanners.
+
+| Language | Baseline dependency scan | Framework adapters |
+| --- | --- | --- |
+| Python | AST import graph | Flask, FastAPI, Django |
+| JavaScript | relative import/require graph | Express, Next.js |
+| TypeScript | relative import graph | Express, NestJS, Next.js |
+| PHP | namespace/use + literal require/include graph | Laravel |
+| Java/Kotlin | package/import graph | Spring |
+| Go | module-local import graph | Gin, Fiber |
+| Rust | mod + crate::use graph | Actix Web |
+| Other | project/file map | generic fallback |
+
+Framework adapters add framework-aware context such as routes, controllers/routers, models/components, middleware/providers, and framework-specific verification recommendations.
+
+The runtime resolves:
+
+```text
+detected language
+       +
+detected framework(s)
+       ↓
+active-adapter.json
+       ↓
+plan / impact / build / verify
+```
+
+This means the four core skills do not need separate Laravel/Flask/Express variants.
 
 ## How it works
 
@@ -111,11 +142,30 @@ my-vibe-kit/
 │   └── verify/SKILL.md
 ├── runtime/
 │   ├── vibe.py
-│   └── vibe_core.py
+│   ├── vibe_core.py
+│   └── vibe_stacks.py
 ├── adapters/
-│   ├── python.json
-│   ├── typescript.json
-│   └── generic.json
+│   ├── languages/
+│   │   ├── python.json
+│   │   ├── javascript.json
+│   │   ├── typescript.json
+│   │   ├── php.json
+│   │   ├── java.json
+│   │   ├── go.json
+│   │   ├── rust.json
+│   │   └── generic.json
+│   └── frameworks/
+│       ├── flask.json
+│       ├── fastapi.json
+│       ├── django.json
+│       ├── express.json
+│       ├── nestjs.json
+│       ├── nextjs.json
+│       ├── laravel.json
+│       ├── spring.json
+│       ├── gin.json
+│       ├── fiber.json
+│       └── actix-web.json
 ├── integrations/
 │   └── antigravity/
 │       ├── rules/vibe-project.md
@@ -151,7 +201,8 @@ your-project/
     ├── adapters/
     ├── tools/
     │   ├── vibe.py
-    │   └── vibe_core.py
+    │   ├── vibe_core.py
+    │   └── vibe_stacks.py
     ├── runtime/            # regenerated; ignored by .vibe/.gitignore
     └── tasks/              # task records; keep or archive as you prefer
 ```
@@ -344,7 +395,17 @@ After installing, open:
 .vibe/config.json
 ```
 
-The installer detects the repository stack and seeds verification commands when it can do so safely.
+The installer detects the repository language/framework stack and seeds verification commands when it can do so safely. It also copies the language/framework adapter catalog into `.vibe/adapters/`.
+
+Examples of automatically discovered gates include:
+
+- Node/TypeScript: package scripts such as `lint`, `typecheck`, `test`, `build`.
+- Python: Ruff, Pyright/mypy, pytest when declared.
+- Django: `python manage.py check`, plus Django tests when pytest is not configured.
+- Laravel/PHP: Composer test scripts, PHPStan/Larastan, Pest/PHPUnit, or `php artisan test`.
+- Java/Spring: Maven or Gradle tests.
+- Go: `go test ./...`.
+- Rust: `cargo check` and `cargo test`.
 
 For a Node/TypeScript project, package scripts are preferred. If `package.json` contains:
 
@@ -530,8 +591,11 @@ Regenerated under:
 ```text
 .vibe/runtime/
 ├── project-map.json
+├── framework-map.json
+├── active-adapter.json
 ├── dependency-map.json
 ├── impact.json
+├── dependency-diff.json
 └── verification.json
 ```
 
@@ -566,6 +630,8 @@ The installed toolkit exposes:
 python .vibe/tools/vibe.py detect
 python .vibe/tools/vibe.py task start --mode bug_fix --request "stop-loss gap fill is wrong"
 python .vibe/tools/vibe.py context
+python .vibe/tools/vibe.py adapter
+python .vibe/tools/vibe.py framework
 python .vibe/tools/vibe.py deps
 python .vibe/tools/vibe.py impact
 python .vibe/tools/vibe.py snapshot before
@@ -581,8 +647,14 @@ The skills call these commands when appropriate. You can also run them manually 
 The built-in scanner is intentionally dependency-free and acts as a baseline:
 
 - Python: AST-based local import graph.
-- JavaScript/TypeScript: local import/export/require graph.
-- Generic projects: file/project map even when a language-specific graph is unavailable.
+- JavaScript/TypeScript: local relative import/export/require graph.
+- PHP: namespace/use relationships plus literal require/include paths.
+- Java/Kotlin: package/import relationships.
+- Go: local module import relationships.
+- Rust: module declarations and `crate::` use relationships.
+- Generic projects: file/project map when a language-specific graph is unavailable.
+
+Framework context is also generated into `.vibe/runtime/framework-map.json`, while the merged stack adapter is stored in `.vibe/runtime/active-adapter.json`.
 
 For larger projects, use stronger native tooling too.
 
@@ -607,6 +679,42 @@ Useful additions:
 - TypeScript compiler — semantic/type checking.
 - ESLint — static rules.
 - Vitest/Jest/Playwright — behavioral verification.
+
+### PHP / Laravel recommendation
+
+Useful additions:
+
+- Deptrac — enforce architectural layer rules.
+- PHPStan / Larastan — semantic/static analysis.
+- Pest or PHPUnit — behavior/regression tests.
+- Laravel Pint or PHP-CS-Fixer — style/static hygiene.
+
+### Java / Spring recommendation
+
+Useful additions:
+
+- Maven/Gradle dependency tooling.
+- ArchUnit — enforce package/module architecture.
+- jdeps — JVM dependency inspection.
+- Checkstyle / SpotBugs — static quality checks.
+
+### Go recommendation
+
+Useful additions:
+
+- `go list -deps` and `go mod graph`.
+- `go vet`.
+- staticcheck or golangci-lint.
+- `go test ./...`.
+
+### Rust recommendation
+
+Useful additions:
+
+- `cargo metadata`.
+- `cargo tree`.
+- `cargo clippy`.
+- `cargo test`.
 
 The kit's graph remains useful as a zero-setup baseline; native analyzers remain the authority when configured.
 
