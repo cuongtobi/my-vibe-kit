@@ -116,6 +116,8 @@ class VibeCoreTests(unittest.TestCase):
         edges = {(item["from"], item["to"]) for item in graph["edges"]}
         self.assertIn(("routes/web.php", "app/Services/OrderService.php"), edges)
         self.assertIn("php-static", graph["scanners"])
+        impact = vibe_core.impact_analysis(root, ["app/Services/OrderService.php"])
+        self.assertTrue(any(route["path"] == "/orders" for route in impact["affected_routes"]))
 
     def test_java_go_and_rust_dependency_scanners(self):
         fixtures = []
