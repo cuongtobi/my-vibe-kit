@@ -1,0 +1,9 @@
+{
+  "id": "express",
+  "kind": "framework",
+  "language": "javascript-or-typescript",
+  "detect": ["package dependency express"],
+  "context": ["routes", "routers", "middleware", "controllers"],
+  "architecture_hints": ["track router mounting and middleware order", "keep request handlers separate from business logic"],
+  "verification": ["package lint", "package typecheck", "package test"]
+}
