@@ -42,6 +42,11 @@ class VibeCoreTests(unittest.TestCase):
         (tests / "test_a.py").write_text("from pkg.a import value\n", encoding="utf-8")
 
         vibe_core.project_context(root)
+        self.assertTrue((root / ".vibe/runtime/architecture-policy.json").exists())
+        self.assertEqual(
+            json.loads((root / ".vibe/runtime/architecture-policy.json").read_text(encoding="utf-8"))["effective_profile"],
+            "standard",
+        )
         graph = vibe_core.dependency_graph(root)
 
         edges = {(item["from"], item["to"]) for item in graph["edges"]}
@@ -280,6 +285,8 @@ class VibeCoreTests(unittest.TestCase):
         self.assertEqual(report["status"], "PASS_VERIFIED")
         self.assertEqual(report["commands_run"], 1)
         self.assertEqual(report["command_results"][0]["returncode"], 0)
+        self.assertEqual(report["architecture"]["profile"], "standard")
+        self.assertEqual(report["architecture"]["pattern"], "modular-layered")
 
 
 if __name__ == "__main__":
