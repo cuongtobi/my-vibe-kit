@@ -39,6 +39,15 @@ PLAN -> BUILD -> VERIFY
 
 Use the installed vibe/plan/build/verify skills. Dependency, context, and architecture-policy facts should come from `.vibe/tools/vibe.py` when available.
 
+## Context rules
+
+- Reuse persistent context/dependency state from `.vibe/state/` across sessions.
+- Prefer Git-based incremental refresh over full repository rescans.
+- Start from `.vibe/runtime/relevant-context.json` and read additional source only when evidence requires it.
+- Respect the configured source/test/module context limits.
+- Treat `.vibe/tasks/` as cold history. Never auto-load every old task; read a prior task only when explicitly referenced or materially relevant.
+- Cached/indexed does not mean verified. Only runtime verification commands can establish `PASS_VERIFIED`.
+
 ## Definition of done
 
 A change is complete only when:
