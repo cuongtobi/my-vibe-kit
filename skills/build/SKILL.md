@@ -33,6 +33,18 @@ For greenfield/new modules, follow the effective architecture policy:
 - If the effective profile is `strict`, use the policy's Clean/Hexagonal inward dependency rules and keep framework/infrastructure at the edges.
 - Apply the clean-code rules in `architecture-policy.json`: intent-revealing names, focused functions/modules, low nesting, explicit errors/dependencies, no hidden global mutable state, behavior-focused tests, and simple code over clever code.
 
+## Comment and documentation policy
+
+Apply comments and documentation selectively as part of implementation quality:
+
+- Prefer code that explains itself through names and structure. Do not narrate obvious statements, assignments, branches, or function calls.
+- Add a concise **why** comment when a future maintainer could otherwise misread a non-obvious decision, invariant, tradeoff, workaround, compatibility constraint, security assumption, performance/cache behavior, or surprising edge case.
+- Document public/shared APIs and non-obvious modules/functions in the project's native documentation style when callers need to know contracts, inputs/outputs, errors, side effects, lifecycle, or invariants. Avoid boilerplate docstrings for obvious private helpers.
+- Preserve useful existing rationale comments. If the implementation changes the behavior they describe, update or remove them in the same change.
+- TODO/FIXME comments must be actionable and specific. Do not leave vague notes such as `TODO: fix later`.
+- Do not comment generated/vendor code unless the project owns and intentionally maintains that code.
+- Follow the repository's existing comment/docstring conventions when they are compatible with these rules.
+
 ## Implementation rules
 
 - Prefer existing project patterns and dependencies.
