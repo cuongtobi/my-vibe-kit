@@ -40,7 +40,7 @@ Complete one software change with controlled scope and runtime evidence.
 | `NEEDS_VERIFICATION_CONFIG` | Identify established project check commands; configure them within the authorized scope, then verify. Do not substitute a no-op command or edit application code to bypass this status. |
 | A command cannot run because of the environment | Diagnose the specific missing tool/configuration; resolve it within scope or report the blocker and next required action. |
 | Runtime is absent | Use scoped inspection and the project's own checks; distinguish manual evidence from runtime verification and do not invent a runtime status. |
-| Relevant context is empty or unrelated | Inspect the indexed retrieval evidence, then use a bounded project-native search for dynamic/framework relationships, identify explicit targets, and rerun relevant/impact when available. |
+| Relevant context is low-confidence, fallback-truncated, empty, or unrelated | Inspect `retrieval_confidence`, fallback evidence, and indexed matches; then use a bounded project-native search for dynamic/framework relationships, identify explicit targets, and rerun relevant/impact when available. |
 | A baseline is missing or invalid after implementation began | Preserve available evidence and report the unavailable comparison. Never manufacture a pre-change baseline from current code. Restore one only from authentic pre-change evidence. |
 
 Retry when a concrete diagnosis or change justifies another attempt. If the same blocker remains and no new evidence or authorized remedy is available, report what was attempted and what is needed; do not cycle through build/verify without progress.
@@ -71,5 +71,5 @@ Do not perform opportunistic refactors, package upgrades, renames, or cleanup un
 - Prefer deterministic `.vibe/tools/vibe.py` facts over guesses when the runtime is installed.
 - Reuse persistent `.vibe/state/` context across sessions; do not rescan or load the whole repository when a valid cache or Git delta is available.
 - Treat `.vibe/tasks/` as cold history and never auto-load all prior tasks.
-- Keep model context bounded and expand it progressively from `relevant-context.json`.
+- Keep model context bounded and expand it progressively from `relevant-context.json`; never treat low-confidence retrieval or a truncated fallback as evidence that no other file is affected.
 - Treat the built-in dependency graph as advisory static evidence; native analyzers/tests remain authoritative for runtime/framework behavior.
