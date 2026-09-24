@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import unicodedata
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -163,8 +164,156 @@ def discover_verification_commands(root: Path) -> List[List[str]]:
     return out
 
 
-def effective_adapter(root: Path) -> Dict[str, object]:
-    stack = detect_stack(root)
+
+LANGUAGE_SUFFIXES = {
+    ".py": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".php": "php",
+    ".rb": "ruby",
+    ".java": "java",
+    ".kt": "java",
+    ".kts": "java",
+    ".go": "go",
+    ".rs": "rust",
+    ".cs": "dotnet",
+}
+
+FRAMEWORK_LANGUAGES = {
+    "flask": ("python",),
+    "fastapi": ("python",),
+    "django": ("python",),
+    "express": ("typescript", "javascript"),
+    "nestjs": ("typescript", "javascript"),
+    "nextjs": ("typescript", "javascript"),
+    "nuxt": ("typescript", "javascript"),
+    "sveltekit": ("typescript", "javascript"),
+    "react": ("typescript", "javascript"),
+    "vue": ("typescript", "javascript"),
+    "svelte": ("typescript", "javascript"),
+    "vite": ("typescript", "javascript"),
+    "laravel": ("php",),
+    "wordpress": ("php",),
+    "rails": ("ruby",),
+    "spring": ("java",),
+    "gin": ("go",),
+    "fiber": ("go",),
+    "actix-web": ("rust",),
+}
+
+TASK_FRAMEWORK_ALIASES = {
+    "next": "nextjs",
+    "nextjs": "nextjs",
+    "next.js": "nextjs",
+    "nest": "nestjs",
+    "nestjs": "nestjs",
+    "nuxt": "nuxt",
+    "react": "react",
+    "vue": "vue",
+    "svelte": "svelte",
+    "sveltekit": "sveltekit",
+    "vite": "vite",
+    "fastapi": "fastapi",
+    "flask": "flask",
+    "django": "django",
+    "laravel": "laravel",
+    "wordpress": "wordpress",
+    "rails": "rails",
+    "spring": "spring",
+    "gin": "gin",
+    "fiber": "fiber",
+    "actix": "actix-web",
+}
+
+
+def _fold_task_text(value: str) -> str:
+    value = unicodedata.normalize("NFKC", value or "").casefold().replace("đ", "d")
+    return "".join(
+        ch for ch in unicodedata.normalize("NFKD", value)
+        if not unicodedata.combining(ch)
+    )
+
+
+def task_aware_stack(
+    stack: Dict[str, object],
+    task_request: Optional[str] = None,
+    target_files: Optional[Sequence[str]] = None,
+) -> Dict[str, object]:
+    """Choose a task-specific primary language without changing repository detection."""
+    data = dict(stack)
+    languages = [str(item) for item in (stack.get("languages") or ["generic"])]
+    repository_primary = str(stack.get("primary") or (languages[0] if languages else "generic"))
+    scores = {language: 0 for language in languages}
+    reasons: List[str] = []
+
+    for raw in target_files or []:
+        suffix = Path(str(raw)).suffix.lower()
+        language = LANGUAGE_SUFFIXES.get(suffix)
+        if language is None and suffix in {".vue", ".svelte"}:
+            language = "typescript" if "typescript" in scores else (
+                "javascript" if "javascript" in scores else None
+            )
+        if language in scores:
+            scores[language] += 100
+            reasons.append("target-file:{}".format(language))
+
+    folded_request = _fold_task_text(task_request or "")
+    request_words = set(re.findall(r"[a-z0-9.+#-]+", folded_request))
+    for language in languages:
+        if language in request_words:
+            scores[language] += 20
+            reasons.append("task-language:{}".format(language))
+
+    frameworks = set(str(item) for item in (stack.get("frameworks") or []))
+    for alias, framework in TASK_FRAMEWORK_ALIASES.items():
+        if framework not in frameworks:
+            continue
+        pattern = r"(?<![a-z0-9])" + re.escape(alias) + r"(?![a-z0-9])"
+        if re.search(pattern, folded_request) is None:
+            continue
+        candidates = FRAMEWORK_LANGUAGES.get(framework, ())
+        selected = next((language for language in candidates if language in scores), None)
+        if selected:
+            scores[selected] += 40
+            reasons.append("task-framework:{}->{}".format(framework, selected))
+
+    best_score = max(scores.values()) if scores else 0
+    if best_score > 0:
+        winners = [language for language, score in scores.items() if score == best_score]
+        primary = repository_primary if repository_primary in winners else winners[0]
+        reason = ",".join(dict.fromkeys(reasons)) or "task-evidence"
+    else:
+        primary = repository_primary
+        reason = "repository-primary-fallback"
+
+    repository_frameworks = [str(item) for item in (stack.get("frameworks") or [])]
+    ordered_frameworks = sorted(
+        repository_frameworks,
+        key=lambda framework: (
+            0 if primary in FRAMEWORK_LANGUAGES.get(framework, ()) else 1,
+            repository_frameworks.index(framework),
+        ),
+    )
+
+    data["repository_primary"] = repository_primary
+    data["task_primary"] = primary
+    data["task_primary_reason"] = reason
+    data["task_language_scores"] = scores
+    data["primary"] = primary
+    data["repository_frameworks"] = repository_frameworks
+    data["frameworks"] = ordered_frameworks
+    return data
+
+def effective_adapter(
+    root: Path,
+    task_request: Optional[str] = None,
+    target_files: Optional[Sequence[str]] = None,
+) -> Dict[str, object]:
+    stack = task_aware_stack(detect_stack(root), task_request, target_files)
     bases = [root/'.vibe'/'adapters', root/'adapters']
     base = next((candidate for candidate in bases if candidate.exists()), None)
 

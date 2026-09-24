@@ -84,7 +84,9 @@ Nếu project chưa có command test/lint/typecheck/build đáng tin cậy, hãy
 - Context lưu bằng file thay vì phụ thuộc chat history.
 - Cache JSON context/dependency bền vững qua nhiều session.
 - Refresh tăng dần theo Git delta thay vì quét lại toàn repository cho mỗi task.
-- Chỉ đưa relevant context có giới hạn vào model trước khi reasoning.
+- Relevant-context retrieval có giới hạn và Unicode-aware trước khi model reasoning.
+- Có content fallback được kiểm soát khi indexed retrieval có độ tin cậy quá thấp.
+- Chọn primary stack theo task cho repository polyglot mà không làm mất lợi ích của project-level cache.
 - Các mode rõ ràng: `feature`, `change`, `bug_fix`, `refactor`, `hotfix`.
 - Mặc định ưu tiên thay đổi nhỏ nhất đúng yêu cầu.
 - Phải có runtime evidence trước khi hoàn tất.
@@ -124,6 +126,19 @@ plan / impact / build / verify
 `active-adapter.json` expose toàn bộ language adapter đã detect cùng `primary_language`; field `language` đơn vẫn được giữ tạm như compatibility alias cho consumer cũ. Vì vậy 4 skill cốt lõi không cần tạo bản riêng cho Flask/Laravel/Rails/React/WordPress...
 
 Với frontend, adapter có thể merge nhiều lớp. Project TypeScript + React + Vite có thể active cả ba; project Next.js có thể active Next.js + React nhưng architecture guidance ưu tiên meta-framework. Tương tự Nuxt được ưu tiên hơn Vue và SvelteKit ưu tiên hơn Svelte. Vite chỉ là tooling adapter, không quyết định application architecture.
+
+## Ranh giới module runtime
+
+Runtime được tách theo trách nhiệm để tránh tiếp tục phình thành một core đơn khối:
+
+- `vibe_core.py` — orchestration, project/dependency graph, impact, snapshot, verification.
+- `vibe_retrieval.py` — Unicode tokenization, query expansion, confidence scoring, bounded fallback và relevant-context selection.
+- `vibe_tasks.py` — task record cùng retention/GC lifecycle explicit.
+- `vibe_stacks.py` — stack detection, task-aware stack selection, adapter và framework context.
+- `vibe_state.py` — persistent cache và Git delta.
+- `vibe_architecture.py` — architecture/clean-code policy đã resolve.
+
+Public CLI/skill vẫn tập trung ở `vibe.py` và bốn skill cốt lõi.
 
 ## Chính sách kiến trúc
 
@@ -270,7 +285,7 @@ State local tái sử dụng nằm tại:
 
 `index-state.json` lưu version schema/scanner, checksum SHA-256 của artifact và Git repository state tương ứng với cache. Toàn bộ context bundle (file index, context, framework, adapter, architecture) và dependency cache được kiểm tra trước khi tái sử dụng hoặc refresh incremental. Artifact thiếu, hỏng hoặc không nhất quán sẽ kích hoạt full rebuild; repository rỗng hợp lệ vẫn được cache.
 
-`file-index.json` đồng thời lưu search index có giới hạn cho source: symbol đã phát hiện và các identifier/content term có tín hiệu cao của từng file. Khi refresh incremental, chỉ file thay đổi mới phải index lại. `content-hashes.json` lưu riêng content hash phục vụ verification để fingerprint lặp lại có thể dùng lại hash của file không đổi thay vì mở và hash lại toàn bộ source.
+`file-index.json` đồng thời lưu search index có giới hạn cho source: symbol đã phát hiện và các Unicode identifier/content term có tín hiệu cao của từng file. Tokenizer giữ dạng Unicode gốc cùng dạng bỏ dấu để so khớp; một số cụm kỹ thuật tiếng Việt phổ biến được mở rộng sang alias gần với identifier trong code như login/session/expiry, và project có thể bổ sung alias riêng trong config. Khi refresh incremental, chỉ file thay đổi mới phải index lại. `content-hashes.json` lưu riêng content hash phục vụ verification để fingerprint lặp lại có thể dùng lại hash của file không đổi thay vì mở và hash lại toàn bộ source.
 
 Để xác định cache còn hợp lệ, runtime dùng Git HEAD, hash của file dirty/untracked và hash cấu hình runtime. Đường dẫn Git được đọc bằng output phân cách NUL để giữ đúng Unicode, khoảng trắng và rename. Repository Git index file tracked và file untracked không bị ignore, trong giới hạn file và quy tắc loại trừ thư mục của kit. File generated bị ignore không vào graph trừ khi đã tracked; ngoài Git, scanner filesystem vẫn hoạt động và refresh đầy đủ.
 
@@ -339,7 +354,26 @@ Giới hạn mặc định cho lần retrieval đầu:
 - 8 module liên quan,
 - dependency depth 2.
 
-`relevant` xếp hạng target ban đầu từ filename/path cộng persistent symbol/content index, lưu evidence match, rồi mở rộng theo dependency neighborhood có giới hạn. Agent đọc neighborhood này trước, sau đó chỉ mở rộng khi dependency, consumer, dynamic/framework relationship, contract, config hoặc failing test cụ thể yêu cầu thêm context.
+`relevant` xếp hạng target ban đầu từ filename/path cộng persistent Unicode symbol/content index, lưu evidence match, rồi mở rộng theo dependency neighborhood có giới hạn. Query normalization giữ Unicode, thêm dạng bỏ dấu và áp dụng query alias built-in/cấu hình thêm. Nếu top indexed score thấp hơn `context.retrieval.min_index_score`, runtime chạy bounded content fallback thay vì âm thầm chấp nhận một match yếu.
+
+`relevant-context.json` ghi `retrieval_confidence`, `fallback` và `needs_scoped_search`. Fallback bị cắt giới hạn hoặc kết quả low-confidence được coi là evidence gap rõ ràng: agent phải dùng project-native search có phạm vi, xác định explicit target rồi chạy lại `relevant`/`impact`, không được suy ra rằng không còn file nào bị ảnh hưởng.
+
+Với repository polyglot, persistent cache vẫn giữ stack ở cấp project. Task hiện tại sau đó chọn task-aware primary language từ extension của explicit target và evidence framework/language trong request. Task view này được materialize vào `active-adapter.json` và `architecture-policy.json` mà không buộc full re-index toàn project.
+
+Cấu hình retrieval mặc định:
+
+```json
+{
+  "context": {
+    "retrieval": {
+      "min_index_score": 6,
+      "fallback_max_scan_files": 20000,
+      "fallback_read_bytes": 131072,
+      "query_aliases": {}
+    }
+  }
+}
+```
 
 Full dependency graph có thể nằm trên disk nhưng không nên paste toàn bộ vào model context.
 
@@ -373,14 +407,20 @@ Policy mặc định:
 ```json
 {
   "tasks": {
-    "auto_load_history": false
+    "auto_load_history": false,
+    "retention": {
+      "policy": "bounded",
+      "max_tasks": 100,
+      "max_age_days": 90,
+      "cleanup": "manual"
+    }
   }
 }
 ```
 
 Session mới không được enumerate và load tất cả task cũ.
 
-Task record luôn được giữ lại. `tasks.keep_history` không còn là tùy chọn được hỗ trợ: giá trị `true` cũ vẫn được chấp nhận, còn `false` báo lỗi cấu hình rõ ràng thay vì bị bỏ qua. ID task mới có suffix ngẫu nhiên và thư mục được tạo độc quyền, tránh dùng chung bằng chứng khi hai request xuất hiện trong cùng giây. Khi tiếp tục công việc, tái sử dụng current task thay vì gọi lại `task start`.
+Task record được giữ cho tới khi có cleanup rõ ràng. `tasks.keep_history` vẫn không được dùng để tắt history: giá trị `true` cũ được chấp nhận, còn `false` báo lỗi cấu hình rõ ràng thay vì âm thầm vô hiệu hóa evidence. Retention policy chỉ xác định candidate, không tự xóa. Preview bằng `python .vibe/tools/vibe.py task gc`; chỉ khi user chủ động muốn dọn history mới chạy `python .vibe/tools/vibe.py task gc --apply`. Current task không bao giờ là cleanup candidate. ID task mới có suffix ngẫu nhiên và thư mục được tạo độc quyền, tránh dùng chung bằng chứng khi hai request xuất hiện trong cùng giây. Khi tiếp tục công việc, tái sử dụng current task thay vì gọi lại `task start`.
 
 Task lịch sử chỉ được đọc khi:
 
@@ -413,7 +453,7 @@ Repo 5.000 file không đồng nghĩa model phải đọc 5.000 file.
 
 ## Config mặc định cho project cá nhân
 
-Config v0.7 mặc định được giữ đơn giản:
+Config v0.8 mặc định được giữ đơn giản:
 
 ```json
 {
@@ -437,7 +477,13 @@ Config v0.7 mặc định được giữ đơn giản:
     "max_files": 20000,
     "max_source_files": 20,
     "max_test_files": 10,
-    "max_related_modules": 8
+    "max_related_modules": 8,
+    "retrieval": {
+      "min_index_score": 6,
+      "fallback_max_scan_files": 20000,
+      "fallback_read_bytes": 131072,
+      "query_aliases": {}
+    }
   },
   "index": {
     "backend": "json",
@@ -452,7 +498,13 @@ Config v0.7 mặc định được giữ đơn giản:
     "commands": []
   },
   "tasks": {
-    "auto_load_history": false
+    "auto_load_history": false,
+    "retention": {
+      "policy": "bounded",
+      "max_tasks": 100,
+      "max_age_days": 90,
+      "cleanup": "manual"
+    }
   }
 }
 ```
@@ -686,6 +738,8 @@ python .vibe/tools/vibe.py relevant
 python .vibe/tools/vibe.py relevant src/orders/service.py
 python .vibe/tools/vibe.py relevant --query "fix order cancellation"
 python .vibe/tools/vibe.py impact
+python .vibe/tools/vibe.py task gc
+python .vibe/tools/vibe.py task gc --apply
 python .vibe/tools/vibe.py snapshot before
 python .vibe/tools/vibe.py snapshot after
 python .vibe/tools/vibe.py verify --summary
@@ -696,7 +750,8 @@ python .vibe/tools/vibe.py rebuild
 Command quan trọng:
 
 - `state` — cho biết persistent context/dependency sẽ được reuse hay refresh.
-- `relevant` — tạo bounded context cho task.
+- `relevant` — tạo bounded context cho task và báo retrieval confidence/fallback evidence.
+- `task gc` — preview cleanup task history theo retention policy; chỉ thêm `--apply` khi thực sự muốn xóa.
 - `rebuild` — ép full rebuild context/dependency để debug hoặc sau thay đổi cấu trúc lớn.
 
 `context`, `deps` và `verify` nhận hai flag loại trừ nhau `--summary` và `--quiet` sau tên command. Mặc định vẫn xuất JSON đầy đủ. `--summary` in số lượng/trạng thái và đường dẫn artifact, không in chi tiết graph, danh sách file hoặc command log; `--quiet` tắt stdout. Cả hai vẫn ghi artifact đầy đủ và giữ nguyên exit code cùng lỗi trên stderr. Exit code của verification là `0` cho `PASS_VERIFIED`, `1` cho verification thất bại/lỗi runtime và `3` khi thiếu command configuration. Khi có lỗi, đọc command result liên quan trong `verification.json`, không coi command im lặng là thành công.
@@ -717,7 +772,7 @@ Baseline built-in không yêu cầu dependency ngoài:
 
 Framework context được materialize vào `.vibe/runtime/framework-map.json`.
 
-Toàn bộ language adapter đã detect, primary language adapter và framework adapter được materialize vào `.vibe/runtime/active-adapter.json`.
+Toàn bộ language adapter đã detect, repository primary language, task-aware primary language và framework adapter được materialize vào `.vibe/runtime/active-adapter.json`. Trong project polyglot, explicit target file có tín hiệu mạnh nhất cho task primary, sau đó là framework/language trong request; repository priority chỉ là fallback.
 
 Bản reusable nằm dưới `.vibe/state/`.
 
@@ -820,7 +875,7 @@ Cache hit không bao giờ đủ để làm bằng chứng cho `PASS_VERIFIED`.
 
 Verification chạy các command đã cấu hình trước khi chụp dependency graph cuối cùng và snapshot after. Fingerprint đầu vào trước/sau mỗi command được ghi lại. Nếu command thay đổi file được index hoặc cấu hình runtime, kết quả là `FAIL_VERIFICATION` với `rerun_required: true` và `rerun_commands` liệt kê toàn bộ kiểm tra đã cấu hình. Review thay đổi cuối cùng rồi chạy lại các kiểm tra đó; muốn pass thì đầu vào phải ổn định. Đặt output tạm của command trong thư mục bị ignore để không coi đó là đầu vào verification.
 
-`verification.json` có `task_id` và `source_fingerprint` (SHA-256 của đường dẫn/nội dung file được index và cấu hình runtime, trong giới hạn file đã cấu hình). Fingerprint đầu tiên tạo `content-hashes.json`; các fingerprint sau dùng repository delta để chỉ hash lại file mới/thay đổi và tái sử dụng hash của file không đổi. `status.verification_current` đối chiếu fingerprint và task identity; trường này cho biết report còn hiện hành, không đồng nghĩa đã pass. Verify summary cũng có các định danh này, `rerun_required` và authority level của dependency graph để agent không nhầm static evidence với runtime proof. Executable được resolve qua PATH/PATHEXT trước khi chạy, bao gồm package-manager shim `.CMD` trên Windows, không bật `shell=True`. CI bao phủ Linux và Windows.
+`verification.json` có `task_id` và `source_fingerprint` (SHA-256 của đường dẫn/nội dung file được index và cấu hình runtime, trong giới hạn file đã cấu hình). Fingerprint đầu tiên tạo `content-hashes.json`; các fingerprint sau dùng repository delta để chỉ hash lại file mới/thay đổi và tái sử dụng hash của file không đổi. `status.verification_current` đối chiếu fingerprint và task identity; trường này cho biết report còn hiện hành, không đồng nghĩa đã pass. Verify summary cũng có các định danh này, `rerun_required` và authority level của dependency graph để agent không nhầm static evidence với runtime proof. Executable được resolve qua PATH/PATHEXT trước khi chạy, bao gồm package-manager shim `.CMD` trên Windows, không bật `shell=True`. CI bao phủ Linux, Windows và macOS trên Python 3.9, 3.11 và 3.13.
 
 Danh sách command rỗng trả về `NEEDS_VERIFICATION_CONFIG` (CLI exit code `3`), kể cả khi `verification.require_commands` là `false`. Setting này không cho phép bỏ qua yêu cầu thực sự chạy kiểm tra trước khi báo `PASS_VERIFIED`.
 
@@ -846,9 +901,13 @@ my-vibe-kit/
 ├── runtime/
 │   ├── vibe.py
 │   ├── vibe_core.py
+│   ├── vibe_retrieval.py
+│   ├── vibe_tasks.py
 │   ├── vibe_stacks.py
 │   ├── vibe_architecture.py
 │   └── vibe_state.py
+├── benchmarks/
+│   └── benchmark_runtime.py
 ├── adapters/
 │   ├── languages/
 │   └── frameworks/
@@ -1123,6 +1182,31 @@ Sau đó rebuild:
 ```bash
 python .vibe/tools/vibe.py rebuild
 ```
+
+## Performance benchmark
+
+Repo có benchmark synthetic chỉ dùng Python standard library tại `benchmarks/benchmark_runtime.py`. Mặc định benchmark tạo Git repository với **1.000 / 5.000 / 20.000 Python source file** và đo:
+
+- full context rebuild,
+- dependency graph construction,
+- context/dependency cache hit,
+- multilingual task retrieval,
+- single-file incremental context refresh,
+- single-file incremental dependency refresh.
+
+Chạy full benchmark:
+
+```bash
+python benchmarks/benchmark_runtime.py --sizes 1000 5000 20000
+```
+
+Xuất JSON:
+
+```bash
+python benchmarks/benchmark_runtime.py --sizes 1000 5000 20000 --json
+```
+
+CI chạy một benchmark smoke nhỏ. Workflow GitHub Actions `performance-benchmark` được chạy thủ công cho full 1k/5k/20k và upload `benchmark-results.json` làm artifact. Nên so sánh các lần chạy trên cùng máy/runtime vì thời gian tuyệt đối phụ thuộc môi trường.
 
 ### Vì sao không dùng SQLite?
 

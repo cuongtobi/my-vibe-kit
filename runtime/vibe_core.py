@@ -8,8 +8,7 @@ import re
 import shutil
 import subprocess
 import time
-import uuid
-from collections import Counter, defaultdict, deque
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -20,6 +19,18 @@ from vibe_stacks import (
     effective_adapter,
     framework_context,
     scan_polyglot_dependencies,
+)
+from vibe_retrieval import (
+    bounded_reverse_dependencies,
+    build_relevant_payload,
+    source_search_metadata,
+)
+from vibe_tasks import (
+    copy_to_current_task,
+    current_task,
+    current_task_path,
+    start_task as start_task_record,
+    task_lifecycle,
 )
 from vibe_state import (
     cache_status,
@@ -173,10 +184,6 @@ def runtime_dir(root: Path) -> Path:
     return root / ".vibe" / "runtime"
 
 
-def tasks_dir(root: Path) -> Path:
-    return root / ".vibe" / "tasks"
-
-
 def config_path(root: Path) -> Path:
     return root / ".vibe" / "config.json"
 
@@ -198,6 +205,15 @@ def load_config(root: Path) -> Dict[str, object]:
     data["context"].setdefault("max_source_files", 20)
     data["context"].setdefault("max_test_files", 10)
     data["context"].setdefault("max_related_modules", 8)
+    data["context"].setdefault("retrieval", {})
+    retrieval = data["context"]["retrieval"]
+    if not isinstance(retrieval, dict):
+        retrieval = {}
+        data["context"]["retrieval"] = retrieval
+    retrieval.setdefault("min_index_score", 6)
+    retrieval.setdefault("fallback_max_scan_files", 20000)
+    retrieval.setdefault("fallback_read_bytes", 131072)
+    retrieval.setdefault("query_aliases", {})
     data["index"].setdefault("backend", "json")
     data["index"].setdefault("use_git_delta", True)
     data["index"].setdefault("full_rebuild_on_schema_change", True)
@@ -207,7 +223,22 @@ def load_config(root: Path) -> Dict[str, object]:
     if data["tasks"].get("keep_history") is False:
         raise RuntimeError("tasks.keep_history=false is unsupported. Remove this setting; task records are always retained.")
     data["tasks"].setdefault("auto_load_history", False)
+    data["tasks"].setdefault("retention", {})
+    retention = data["tasks"]["retention"]
+    if not isinstance(retention, dict):
+        retention = {}
+        data["tasks"]["retention"] = retention
+    retention.setdefault("policy", "bounded")
+    retention.setdefault("max_tasks", 100)
+    retention.setdefault("max_age_days", 90)
+    retention.setdefault("cleanup", "manual")
     return data
+
+
+def start_task(root: Path, mode: str, request: str) -> Dict[str, object]:
+    # Keep configuration validation at the public compatibility boundary.
+    load_config(root)
+    return start_task_record(root, mode, request)
 
 
 def detect_stack(root: Path) -> Dict[str, object]:
@@ -288,89 +319,6 @@ MANIFEST_NAMES = {
 }
 
 
-SEARCH_TEXT_LIMIT = 262144
-SEARCH_TERM_LIMIT = 128
-SEARCH_SYMBOL_LIMIT = 64
-SEARCH_STOP_WORDS = {
-    "and", "async", "await", "bool", "break", "case", "catch", "class", "const",
-    "continue", "def", "default", "delete", "do", "else", "enum", "export", "extends",
-    "false", "finally", "float", "for", "from", "func", "function", "if", "implements",
-    "import", "in", "instanceof", "int", "interface", "let", "match", "module", "new",
-    "none", "null", "package", "pass", "private", "protected", "public", "raise", "return",
-    "self", "static", "str", "struct", "super", "switch", "this", "throw", "trait", "true",
-    "try", "type", "use", "var", "void", "while", "with", "yield",
-}
-
-
-def _identifier_parts(value: str) -> List[str]:
-    out = []
-    for raw in re.split(r"[^A-Za-z0-9]+|_+", value):
-        if not raw:
-            continue
-        pieces = re.findall(r"[A-Z]+(?=[A-Z][a-z]|\b)|[A-Z]?[a-z]+|[0-9]+", raw)
-        values = pieces or [raw]
-        lowered_raw = raw.lower()
-        if len(lowered_raw) >= 3:
-            out.append(lowered_raw)
-        for piece in values:
-            piece = piece.lower()
-            if len(piece) >= 3:
-                out.append(piece)
-    return out
-
-
-def _search_tokens_from_text(text: str) -> List[str]:
-    counts = Counter()
-    for identifier in re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", text):
-        for token in _identifier_parts(identifier):
-            if token not in SEARCH_STOP_WORDS:
-                counts[token] += 1
-    return [
-        token for token, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:SEARCH_TERM_LIMIT]
-    ]
-
-
-def _source_symbols(path: Path, text: str) -> List[str]:
-    symbols = []
-    if path.suffix.lower() == ".py":
-        try:
-            tree = ast.parse(text, filename=str(path))
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                    symbols.append(node.name)
-        except SyntaxError:
-            pass
-    else:
-        patterns = [
-            r"\b(?:class|interface|trait|enum|struct|module|type)\s+([A-Za-z_][A-Za-z0-9_]*)",
-            r"\b(?:def|fn|func|function)\s+([A-Za-z_][A-Za-z0-9_!?=]*)",
-            r"\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:=|:)",
-        ]
-        for pattern in patterns:
-            symbols.extend(re.findall(pattern, text))
-    unique = []
-    seen = set()
-    for symbol in symbols:
-        if symbol not in seen:
-            seen.add(symbol)
-            unique.append(symbol)
-        if len(unique) >= SEARCH_SYMBOL_LIMIT:
-            break
-    return unique
-
-
-def _source_search_metadata(path: Path) -> Dict[str, object]:
-    try:
-        with path.open("r", encoding="utf-8", errors="replace") as handle:
-            text = handle.read(SEARCH_TEXT_LIMIT)
-    except OSError:
-        return {"symbols": [], "search_terms": []}
-    return {
-        "symbols": _source_symbols(path, text),
-        "search_terms": _search_tokens_from_text(text),
-    }
-
-
 def _file_record(root: Path, path: Path) -> Optional[Dict[str, object]]:
     try:
         rel = path.relative_to(root)
@@ -393,7 +341,7 @@ def _file_record(root: Path, path: Path) -> Optional[Dict[str, object]]:
         ),
     }
     if source:
-        record.update(_source_search_metadata(path))
+        record.update(source_search_metadata(path))
     return record
 
 
@@ -516,6 +464,58 @@ def _materialize_context_bundle(
     copy_to_current_task(root, "architecture-policy.json", architecture)
 
 
+def _materialize_task_view(
+    root: Path,
+    context_data: Dict[str, object],
+    *,
+    source_paths: Optional[Sequence[str]] = None,
+    query: Optional[str] = None,
+    targets: Optional[Sequence[str]] = None,
+) -> Optional[Dict[str, object]]:
+    task = current_task(root)
+    if not isinstance(task, dict):
+        return None
+    active_query = query if query is not None else str(task.get("request") or "")
+    if targets is None:
+        task_path = current_task_path(root)
+        previous_relevant = json_load(task_path / "relevant-context.json", {}) if task_path else {}
+        if isinstance(previous_relevant, dict):
+            saved_targets = previous_relevant.get("targets")
+            if isinstance(saved_targets, list):
+                targets = [str(item) for item in saved_targets if isinstance(item, str)]
+    if source_paths is None:
+        file_index = load_cache(root, "files", {})
+        source_paths = [
+            str(path)
+            for path, item in (file_index.items() if isinstance(file_index, dict) else [])
+            if isinstance(item, dict) and item.get("source")
+        ]
+    config = load_config(root)
+    adapter = effective_adapter(root, active_query, targets)
+    architecture = architecture_policy(
+        root,
+        config,
+        source_paths=list(source_paths),
+        task_request=active_query,
+        target_files=targets,
+    )
+    json_dump(runtime_dir(root) / "active-adapter.json", adapter)
+    json_dump(runtime_dir(root) / "architecture-policy.json", architecture)
+    copy_to_current_task(root, "active-adapter.json", adapter)
+    copy_to_current_task(root, "architecture-policy.json", architecture)
+    return {
+        "repository_primary": (adapter.get("stack") or {}).get("repository_primary"),
+        "task_primary": (adapter.get("stack") or {}).get("task_primary"),
+        "reason": (adapter.get("stack") or {}).get("task_primary_reason"),
+        "scores": (adapter.get("stack") or {}).get("task_language_scores"),
+        "frameworks": [
+            item.get("id")
+            for item in (adapter.get("frameworks") or [])
+            if isinstance(item, dict)
+        ],
+    }
+
+
 def project_context(root: Path, force: bool = False) -> Dict[str, object]:
     config = load_config(root)
     max_files = int(config["context"].get("max_files", 20000))
@@ -534,6 +534,9 @@ def project_context(root: Path, force: bool = False) -> Dict[str, object]:
                 "changed_files": [],
             }
             _materialize_context_bundle(root, data, framework, adapter, architecture)
+            task_view = _materialize_task_view(root, data)
+            if task_view:
+                data["task_primary_stack"] = task_view
             return data
         refresh = {
             "mode": "FULL_REBUILD",
@@ -650,6 +653,9 @@ def project_context(root: Path, force: bool = False) -> Dict[str, object]:
     write_cache(root, "architecture", architecture, repo_state)
     write_cache(root, "context", data, repo_state)
     _materialize_context_bundle(root, data, framework, adapter, architecture)
+    task_view = _materialize_task_view(root, data, source_paths=source_paths)
+    if task_view:
+        data["task_primary_stack"] = task_view
     return data
 
 def python_module_name(rel: Path) -> str:
@@ -1330,99 +1336,6 @@ def changed_files(root: Path) -> List[str]:
     return sorted(set(output))
 
 
-def bounded_reverse_dependencies(
-    seeds: Sequence[str],
-    reverse: Dict[str, Sequence[str]],
-    depth: int,
-) -> List[str]:
-    queue = deque((seed, 0) for seed in seeds)
-    seen = set(seeds)
-    result = set()
-    while queue:
-        node, current_depth = queue.popleft()
-        if current_depth >= depth:
-            continue
-        for parent in reverse.get(node, []):
-            if parent in seen:
-                continue
-            seen.add(parent)
-            result.add(parent)
-            queue.append((parent, current_depth + 1))
-    return sorted(result)
-
-
-def bounded_dependencies(
-    seeds: Sequence[str],
-    dependencies: Dict[str, Sequence[str]],
-    depth: int,
-) -> List[str]:
-    queue = deque((seed, 0) for seed in seeds)
-    seen = set(seeds)
-    result = set()
-    while queue:
-        node, current_depth = queue.popleft()
-        if current_depth >= depth:
-            continue
-        for child in dependencies.get(node, []):
-            if child in seen:
-                continue
-            seen.add(child)
-            result.add(child)
-            queue.append((child, current_depth + 1))
-    return sorted(result)
-
-
-def _query_tokens(value: str) -> List[str]:
-    stop = {
-        "add", "build", "change", "create", "fix", "implement", "refactor", "the",
-        "this", "that", "with", "from", "into", "for", "and", "use", "using",
-        "feature", "bug", "project", "task", "new",
-    }
-    tokens = []
-    for token in _identifier_parts(value):
-        if token not in stop and token not in tokens:
-            tokens.append(token)
-    return tokens
-
-
-def _path_score(path: str, tokens: Sequence[str]) -> int:
-    lowered = path.lower()
-    stem = Path(path).stem.lower()
-    score = 0
-    for token in tokens:
-        if token == stem:
-            score += 6
-        elif token in stem:
-            score += 4
-        elif token in lowered:
-            score += 2
-    return score
-
-
-def _indexed_relevance(
-    path: str,
-    record: object,
-    tokens: Sequence[str],
-) -> Dict[str, object]:
-    item = record if isinstance(record, dict) else {}
-    symbols = [str(value) for value in (item.get("symbols") or [])]
-    search_terms = set(str(value) for value in (item.get("search_terms") or []))
-    symbol_parts = set()
-    for symbol in symbols:
-        symbol_parts.update(_identifier_parts(symbol))
-    symbol_matches = sorted(set(tokens) & symbol_parts)
-    content_matches = sorted(set(tokens) & search_terms)
-    path_score = _path_score(path, tokens)
-    score = path_score + (10 * len(symbol_matches)) + (3 * len(content_matches))
-    return {
-        "path": path,
-        "score": score,
-        "path_score": path_score,
-        "symbol_matches": symbol_matches,
-        "content_matches": content_matches,
-    }
-
-
 def relevant_context(
     root: Path,
     targets: Optional[Sequence[str]] = None,
@@ -1432,114 +1345,64 @@ def relevant_context(
     graph = dependency_graph(root)
     config = load_config(root)
     context_config = config.get("context") or {}
+    retrieval_config = context_config.get("retrieval") or {}
     depth = int(context_config.get("max_dependency_depth", 2))
     max_source = int(context_config.get("max_source_files", 20))
     max_tests = int(context_config.get("max_test_files", 10))
     max_modules = int(context_config.get("max_related_modules", 8))
-
-    nodes = [str(item) for item in (graph.get("nodes") or [])]
-    test_files = set(str(item) for item in (context.get("test_files") or []))
-    selected = [
-        Path(item).as_posix() for item in (targets or [])
-        if Path(item).as_posix() in set(nodes)
-    ]
 
     active_query = query or ""
     task = current_task(root)
     if not active_query and isinstance(task, dict):
         active_query = str(task.get("request") or "")
 
-    tokens = _query_tokens(active_query)
     file_index = load_cache(root, "files", {})
     if not isinstance(file_index, dict):
         file_index = {}
-    changed = set(changed_files(root))
-    retrieval = []
 
-    if not selected and tokens:
-        ranked = []
-        for path in nodes:
-            if path in test_files:
-                continue
-            evidence = _indexed_relevance(path, file_index.get(path), tokens)
-            if path in changed:
-                evidence["score"] = int(evidence["score"]) + 1
-                evidence["changed_file_bonus"] = 1
-            if int(evidence["score"]) > 0:
-                ranked.append(evidence)
-        ranked.sort(key=lambda item: (-int(item["score"]), str(item["path"])))
-        retrieval = ranked[:10]
-        selected = [str(item["path"]) for item in ranked[:3]]
-    elif not selected:
-        selected = [path for path in sorted(changed) if path in set(nodes)]
-
-    if targets:
-        retrieval = [
-            {
-                "path": path,
-                "score": None,
-                "reason": "explicit-target",
-                "symbol_matches": [],
-                "content_matches": [],
-            }
-            for path in selected
-        ]
-
-    dependencies = graph.get("dependencies") or {}
-    reverse = graph.get("reverse_dependencies") or {}
-    forward = bounded_dependencies(selected, dependencies, depth)
-    consumers = bounded_reverse_dependencies(selected, reverse, depth)
-    ordered = []
-    for path in list(selected) + forward + consumers:
-        if path not in ordered:
-            ordered.append(path)
-
-    source_files = [path for path in ordered if path not in test_files][:max_source]
-    impacted = set(source_files) | set(selected)
-    related_tests = []
-    for test in sorted(test_files):
-        deps = set(dependencies.get(test, []))
-        score = _path_score(test, tokens)
-        if test in impacted or deps & impacted or score > 0:
-            related_tests.append(test)
-    related_tests = related_tests[:max_tests]
-
-    modules = []
-    for path in source_files:
-        parts = Path(path).parts
-        if not parts:
-            continue
-        if parts[0] in {"src", "app", "lib", "internal", "packages", "apps"} and len(parts) > 1:
-            module = "/".join(parts[:2])
-        else:
-            module = parts[0]
-        if module not in modules:
-            modules.append(module)
-        if len(modules) >= max_modules:
-            break
-
-    data = {
-        "generated_at": utc_now(),
-        "query": active_query,
-        "query_tokens": tokens,
-        "targets": selected,
-        "retrieval_mode": "indexed-symbol-content",
-        "retrieval_evidence": retrieval,
-        "source_files": source_files,
-        "test_files": related_tests,
-        "related_modules": modules,
-        "dependency_depth": depth,
-        "dependency_authority": graph.get("authority"),
-        "limits": {
-            "max_source_files": max_source,
-            "max_test_files": max_tests,
-            "max_related_modules": max_modules,
-        },
-        "history_policy": {
-            "auto_load_history": bool((config.get("tasks") or {}).get("auto_load_history", False)),
-            "note": "Historical task folders are cold storage and are not loaded automatically.",
-        },
+    data = build_relevant_payload(
+        root,
+        graph=graph,
+        context=context,
+        file_index=file_index,
+        query=active_query,
+        targets=targets,
+        changed_files=changed_files(root),
+        depth=depth,
+        max_source=max_source,
+        max_tests=max_tests,
+        max_modules=max_modules,
+        min_index_score=int(retrieval_config.get("min_index_score", 6)),
+        fallback_max_scan_files=int(retrieval_config.get("fallback_max_scan_files", 20000)),
+        fallback_read_bytes=int(retrieval_config.get("fallback_read_bytes", 131072)),
+        custom_aliases=(
+            retrieval_config.get("query_aliases")
+            if isinstance(retrieval_config.get("query_aliases"), dict)
+            else {}
+        ),
+    )
+    data["generated_at"] = utc_now()
+    data["history_policy"] = {
+        "auto_load_history": bool((config.get("tasks") or {}).get("auto_load_history", False)),
+        "retention": (config.get("tasks") or {}).get("retention"),
+        "note": "Historical task folders are cold storage and are not loaded automatically.",
     }
+
+    source_paths = [
+        str(path)
+        for path, item in file_index.items()
+        if isinstance(item, dict) and item.get("source")
+    ]
+    task_view = _materialize_task_view(
+        root,
+        context,
+        source_paths=source_paths,
+        query=active_query,
+        targets=data.get("targets") or [],
+    )
+    if task_view:
+        data["task_primary_stack"] = task_view
+
     json_dump(runtime_dir(root) / "relevant-context.json", data)
     copy_to_current_task(root, "relevant-context.json", data)
     return data
@@ -1613,59 +1476,6 @@ def impact_analysis(root: Path, targets: Optional[Sequence[str]] = None) -> Dict
     json_dump(runtime_dir(root) / "impact.json", data)
     copy_to_current_task(root, "impact.json", data)
     return data
-
-
-def slugify(value: str, limit: int = 48) -> str:
-    slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip()).strip("-").lower()
-    return (slug or "task")[:limit].rstrip("-")
-
-
-def start_task(root: Path, mode: str, request: str) -> Dict[str, object]:
-    valid_modes = {"feature", "change", "bug_fix", "refactor", "hotfix"}
-    if mode not in valid_modes:
-        raise ValueError("Unsupported mode: {}".format(mode))
-    load_config(root)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    while True:
-        task_id = "{}-{}-{}-{}".format(stamp, mode.replace("_", "-"), slugify(request), uuid.uuid4().hex[:12])
-        task_path = tasks_dir(root) / task_id
-        try:
-            task_path.mkdir(parents=True, exist_ok=False)
-            break
-        except FileExistsError:
-            continue
-    task = {
-        "id": task_id,
-        "mode": mode,
-        "request": request,
-        "created_at": utc_now(),
-        "path": str(task_path.relative_to(root)),
-    }
-    json_dump(task_path / "task.json", task)
-    (task_path / "request.md").write_text(request.strip() + "\n", encoding="utf-8")
-    json_dump(runtime_dir(root) / "current-task.json", task)
-    return task
-
-
-def current_task(root: Path) -> Optional[Dict[str, object]]:
-    data = json_load(runtime_dir(root) / "current-task.json", None)
-    return data if isinstance(data, dict) else None
-
-
-def current_task_path(root: Path) -> Optional[Path]:
-    task = current_task(root)
-    if not task:
-        return None
-    relative = task.get("path")
-    if not isinstance(relative, str):
-        return None
-    return root / relative
-
-
-def copy_to_current_task(root: Path, filename: str, data: object) -> None:
-    path = current_task_path(root)
-    if path:
-        json_dump(path / filename, data)
 
 
 def _dependency_baseline(task_path: Path) -> Dict[str, object]:
@@ -1867,6 +1677,7 @@ def status(root: Path) -> Dict[str, object]:
         "verification_current": verification_current,
         "stack": detect_stack(root),
         "persistent_state": persistent_state_summary(root),
+        "task_history": task_lifecycle(root, load_config(root), apply=False),
         "runtime": {
             "project_map": (runtime_dir(root) / "project-map.json").exists(),
             "architecture_policy": (runtime_dir(root) / "architecture-policy.json").exists(),

@@ -1,0 +1,22 @@
+name: performance-benchmark
+
+on:
+  workflow_dispatch:
+
+jobs:
+  synthetic-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run 1k / 5k / 20k benchmark
+        shell: bash
+        run: |
+          set -o pipefail
+          python benchmarks/benchmark_runtime.py --sizes 1000 5000 20000 --json | tee benchmark-results.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-benchmark-results
+          path: benchmark-results.json

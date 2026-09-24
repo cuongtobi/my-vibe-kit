@@ -54,7 +54,7 @@ Understand the smallest safe change before implementation.
    - default to `standard + feature-first + modular-layered + framework-native`,
    - keep transport/presentation thin and business behavior in application/domain code,
    - standard projects may use ports/adapters or other abstractions for a concrete boundary, variation, reuse, or testing need; a full Clean/Hexagonal structure is not required.
-6. Start from `.vibe/runtime/relevant-context.json`. Its first-pass targets are ranked from the persistent path + symbol + content-term index, then expanded through the bounded dependency neighborhood. Read those bounded source/test files first. If it is empty or unrelated, use a scoped repository search to recover missing runtime/dynamic relationships, identify explicit targets, and rerun `relevant <identified-files>`. An empty result is a retrieval gap, not proof that nothing is affected. Do not paste the full graph into context; summary mode leaves it on disk.
+6. Start from `.vibe/runtime/relevant-context.json`. Its first-pass targets are ranked from the persistent Unicode-aware path + symbol + content-term index, including accent-folded tokens and configured query aliases. When the indexed score is below the configured confidence threshold, the runtime performs a bounded fallback content scan and records `retrieval_confidence`, `fallback`, and `needs_scoped_search`. Read the bounded source/test files first. If confidence is low, fallback was truncated, or the result is empty/unrelated, use a scoped project-native search to recover missing runtime/dynamic relationships, identify explicit targets, and rerun `relevant <identified-files>`. A low-confidence or empty result is a retrieval gap, not proof that nothing is affected. Do not paste the full graph into context; summary mode leaves it on disk.
 7. Identify:
    - target files/symbols,
    - direct dependencies,
@@ -62,7 +62,7 @@ Understand the smallest safe change before implementation.
    - bounded transitive impact,
    - related configuration/data/schema/API contracts,
    - framework routes/components affected by the target,
-   - all active language adapters, the primary language, and framework adapter guidance,
+   - all active language adapters, the repository primary language, the task-aware primary language selected from request/explicit target evidence, and framework adapter guidance,
    - effective architecture profile/pattern,
    - clean-code and dependency rules from the architecture policy,
    - related tests,
@@ -112,7 +112,7 @@ Assign stable criterion IDs, for example `AC1`, and record each observable expec
 
 - `.vibe/state/` is the reusable repository cache across sessions.
 - `context` and `deps` must prefer CACHE_HIT, then Git-based INCREMENTAL_REFRESH, and use FULL_REBUILD only when the cache cannot be trusted.
-- `.vibe/tasks/` is cold history. Do not enumerate or read old task folders automatically.
+- `.vibe/tasks/` is cold history. Do not enumerate or read old task folders automatically. Retention cleanup is preview-first and manual; never run `task gc --apply` unless the user explicitly asks to prune task history.
 - Load an old task only when the user explicitly refers to it or current evidence identifies it as materially relevant.
 - Current source/tests/config remain more authoritative than historical task artifacts.
 - Respect the configured bounded-context limits; request/read additional files progressively rather than broadening context preemptively.

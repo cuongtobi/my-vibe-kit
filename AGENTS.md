@@ -27,7 +27,7 @@ Run:
 
 ```bash
 python -m unittest discover -s tests -v
-python -m py_compile install.py runtime/vibe.py runtime/vibe_core.py runtime/vibe_stacks.py runtime/vibe_architecture.py runtime/vibe_state.py
+python -m compileall -q install.py runtime
 ```
 
 A change is not complete if these checks fail.

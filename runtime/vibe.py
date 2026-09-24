@@ -10,6 +10,7 @@ from vibe_core import (
     dependency_graph,
     detect_stack,
     impact_analysis,
+    load_config,
     project_context,
     relevant_context,
     repository_root,
@@ -19,6 +20,7 @@ from vibe_core import (
     verify,
 )
 from vibe_state import load_cache, state_summary
+from vibe_tasks import task_lifecycle
 
 
 def emit(data: object) -> None:
@@ -81,6 +83,8 @@ def parser() -> argparse.ArgumentParser:
     request_group = start.add_mutually_exclusive_group(required=True)
     request_group.add_argument("--request", help="Short normalized task request.")
     request_group.add_argument("--request-file", help="Read the request from a UTF-8 file.")
+    gc = task_sub.add_parser("gc", help="Preview or apply bounded task-history cleanup.")
+    gc.add_argument("--apply", action="store_true", help="Delete eligible non-current task records.")
 
     snapshot = sub.add_parser("snapshot", help="Persist dependency snapshot for current task.")
     snapshot.add_argument("when", choices=("before", "after"))
@@ -131,11 +135,13 @@ def main() -> int:
         return 0
     if args.command == "adapter":
         project_context(repo)
-        emit(load_cache(repo, "adapter", {}))
+        path = repo / ".vibe" / "runtime" / "active-adapter.json"
+        emit(json.loads(path.read_text(encoding="utf-8")))
         return 0
     if args.command == "architecture":
         project_context(repo)
-        emit(load_cache(repo, "architecture", {}))
+        path = repo / ".vibe" / "runtime" / "architecture-policy.json"
+        emit(json.loads(path.read_text(encoding="utf-8")))
         return 0
     if args.command == "state":
         emit(state_summary(repo))
@@ -162,6 +168,9 @@ def main() -> int:
         if not request:
             raise SystemExit("Task request cannot be empty.")
         emit(start_task(repo, args.mode, request))
+        return 0
+    if args.command == "task" and args.task_command == "gc":
+        emit(task_lifecycle(repo, load_config(repo), apply=args.apply))
         return 0
     if args.command == "snapshot":
         try:
