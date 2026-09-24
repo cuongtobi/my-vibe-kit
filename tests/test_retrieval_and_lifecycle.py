@@ -170,6 +170,9 @@ class RetrievalAndLifecycleTests(unittest.TestCase):
         self.assertEqual(backend["primary"], "python")
         self.assertEqual(frontend["primary"], "typescript")
         self.assertEqual(backend["repository_primary"], "typescript")
+        self.assertEqual(backend["frameworks"][0], "fastapi")
+        self.assertEqual(frontend["frameworks"][0], "react")
+        self.assertEqual(frontend["repository_frameworks"][0], "fastapi")
 
     def test_framework_names_require_token_boundaries(self):
         stack = {
