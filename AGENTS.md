@@ -30,6 +30,20 @@ When behavior changes, update tests and both documentation variants (`README.md`
 - When changing code, update or remove nearby comments/docstrings/docs that no longer describe the current behavior.
 - Do not add comments merely to increase comment density, repeat names, restate syntax, or explain generated/vendor code the project does not own.
 
+## Security policy
+
+The kit does not guarantee that generated or modified code is secure. Its security goal is narrower and auditable: **security-sensitive changes cannot silently pass without explicit security review and evidence**.
+
+Treat a task as security-sensitive when it touches authentication, authorization, sessions, tokens, passwords, file upload or filesystem access, database queries using user-controlled data, user-controlled URLs, HTML rendering, command/process execution, payments, secrets/credentials, or another trust boundary with comparable impact.
+
+For security-sensitive work:
+
+- Plan identifies the security-sensitive surfaces, trust boundaries, abuse/failure cases, and evidence required to verify them.
+- Build preserves existing controls, uses framework-native secure defaults, least privilege, explicit validation/encoding, safe secret handling, and avoids inventing cryptography or bypassing protections for convenience.
+- Verify performs an explicit security diff review, runs targeted security tests, and uses established project-native security/dependency scanners when available and relevant.
+- Missing scanner/tooling is reported as a limitation; generic tests, lint, or `PASS_VERIFIED` alone are not proof of security.
+- Never weaken authentication, authorization, validation, isolation, secret handling, or another security control merely to make a failing test/check pass.
+
 ## Verification
 
 Run:
