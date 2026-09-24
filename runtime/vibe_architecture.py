@@ -13,9 +13,9 @@ or when deterministic size thresholds are crossed.
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
-from vibe_stacks import IGNORE_DIRS, detect_stack
+from vibe_stacks import IGNORE_DIRS, detect_stack, task_aware_stack
 
 SOURCE_EXTENSIONS = {
     ".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
@@ -226,8 +226,10 @@ def architecture_policy(
     root: Path,
     config: Optional[Dict[str, object]] = None,
     source_paths: Optional[List[str]] = None,
+    task_request: Optional[str] = None,
+    target_files: Optional[Sequence[str]] = None,
 ) -> Dict[str, object]:
-    stack = detect_stack(root)
+    stack = task_aware_stack(detect_stack(root), task_request, target_files)
     full_config = config if isinstance(config, dict) else _read_config(root)
     architecture = dict(default_architecture_config())
     user_arch = full_config.get("architecture") if isinstance(full_config, dict) else None
