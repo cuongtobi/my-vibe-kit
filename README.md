@@ -237,6 +237,23 @@ It contains:
 
 Core Clean Code defaults include intent-revealing naming, focused functions/modules, shallow control flow where practical, thin transport handlers, explicit errors/dependencies, no hidden mutable global state, no speculative abstraction, behavior-focused tests, and simple code over clever code.
 
+## Comment and documentation policy
+
+The kit treats comments as maintenance evidence, not narration. Build and review should prefer self-explanatory code and add comments only where they preserve information that the code alone does not make obvious.
+
+Use comments/docstrings for things such as:
+
+- why a non-obvious implementation or tradeoff exists,
+- business-rule or compatibility constraints,
+- security assumptions and important invariants,
+- performance, caching, invalidation, or concurrency reasoning,
+- tricky algorithms, edge cases, and deliberate workarounds,
+- public/shared API contracts when callers need behavior, side-effect, error, or lifecycle details.
+
+Avoid comments that simply restate the next line, repeat function/variable names, explain ordinary syntax, or add boilerplate docstrings to obvious private helpers. TODO/FIXME notes should be actionable and specific.
+
+The `build` skill must update/remove stale nearby comments when behavior changes. The `verify` skill reviews both directions: missing rationale around genuinely non-obvious code, and noisy/redundant/stale comments that make maintenance harder.
+
 ## Persistent context architecture
 
 The kit does not treat chat history or old task folders as the source of truth.
