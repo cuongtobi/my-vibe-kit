@@ -2,9 +2,6 @@ name: performance-benchmark
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feat/retrieval-runtime-hardening
 
 jobs:
   synthetic-runtime:
