@@ -21,6 +21,15 @@ This repository is the source template for a small cross-agent vibe-coding workf
 
 When behavior changes, update tests and both documentation variants (`README.md` and `README_vi.md`) in the same change. Keep their feature/config/CLI coverage equivalent; English is the default README and Vietnamese is the full translated companion.
 
+## Comment and documentation policy
+
+- Prefer self-explanatory code; comments should explain **why**, constraints, invariants, or non-obvious tradeoffs instead of narrating obvious **what**.
+- Add concise rationale comments when behavior depends on business rules, compatibility/platform/framework constraints, security assumptions, performance/cache behavior, tricky algorithms, surprising edge cases, or deliberate workarounds.
+- Public/shared APIs and non-obvious modules or functions should have concise documentation in the project's native style when it materially helps callers or maintainers understand the contract, side effects, errors, or invariants. Do not add boilerplate docstrings to obvious private helpers.
+- Keep TODO/FIXME notes actionable: state the reason, missing condition, or follow-up target instead of leaving vague placeholders.
+- When changing code, update or remove nearby comments/docstrings/docs that no longer describe the current behavior.
+- Do not add comments merely to increase comment density, repeat names, restate syntax, or explain generated/vendor code the project does not own.
+
 ## Verification
 
 Run:
