@@ -18,7 +18,7 @@ from vibe_stacks import (  # noqa: E402
     discover_verification_commands as discover_verification_commands_full,
 )
 
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 SUPPORTED_AGENTS = ("codex", "claude", "antigravity")
 
 
@@ -133,6 +133,12 @@ def default_config(target: Path) -> Dict[str, object]:
             "max_source_files": 20,
             "max_test_files": 10,
             "max_related_modules": 8,
+            "retrieval": {
+                "min_index_score": 6,
+                "fallback_max_scan_files": 20000,
+                "fallback_read_bytes": 131072,
+                "query_aliases": {},
+            },
         },
         "index": {
             "backend": "json",
@@ -148,6 +154,12 @@ def default_config(target: Path) -> Dict[str, object]:
         },
         "tasks": {
             "auto_load_history": False,
+            "retention": {
+                "policy": "bounded",
+                "max_tasks": 100,
+                "max_age_days": 90,
+                "cleanup": "manual",
+            },
         },
     }
 
