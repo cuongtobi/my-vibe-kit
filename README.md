@@ -127,6 +127,19 @@ plan / impact / build / verify
 
 For frontend stacks, adapters are composable. A TypeScript + React + Vite project can activate all three relevant layers; a Next.js project can activate Next.js plus React, while architecture guidance prioritizes the meta-framework. Likewise Nuxt is prioritized over Vue and SvelteKit over Svelte. Vite remains a tooling adapter rather than the source of application architecture.
 
+## Runtime module boundaries
+
+The runtime is intentionally split by responsibility instead of continuing to grow one monolithic core:
+
+- `vibe_core.py` — orchestration, project/dependency graph, impact, snapshots, verification.
+- `vibe_retrieval.py` — Unicode tokenization, query expansion, confidence scoring, bounded fallback, relevant-context selection.
+- `vibe_tasks.py` — task records and explicit retention/GC lifecycle.
+- `vibe_stacks.py` — stack detection, task-aware stack selection, adapters, framework context.
+- `vibe_state.py` — persistent cache and Git delta.
+- `vibe_architecture.py` — resolved architecture/clean-code policy.
+
+Public CLI/skill behavior remains centered on `vibe.py` and the four skills.
+
 ## Architecture policy
 
 For greenfield projects, the default policy is:
