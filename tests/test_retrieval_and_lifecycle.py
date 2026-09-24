@@ -269,6 +269,7 @@ class RetrievalAndLifecycleTests(unittest.TestCase):
 
         preview = vibe_tasks.task_lifecycle(root, config, apply=False)
         self.assertEqual(preview["candidate_count"], 2)
+        self.assertEqual(vibe_core.status(root)["task_history"]["candidate_count"], 2)
         self.assertTrue((root / first["path"]).exists())
         self.assertTrue((root / second["path"]).exists())
         self.assertTrue((root / current["path"]).exists())
