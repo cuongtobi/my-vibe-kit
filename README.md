@@ -254,6 +254,38 @@ Avoid comments that simply restate the next line, repeat function/variable names
 
 The `build` skill must update/remove stale nearby comments when behavior changes. The `verify` skill reviews both directions: missing rationale around genuinely non-obvious code, and noisy/redundant/stale comments that make maintenance harder.
 
+## Security policy
+
+The kit does **not** claim or guarantee that generated code is secure. Its security objective is auditable and narrower:
+
+> **Security-sensitive changes cannot silently pass without explicit security review/evidence.**
+
+The workflow becomes:
+
+```text
+PLAN
+  ↓
+identify security-sensitive surface
+  ↓
+BUILD
+  ↓
+secure coding rules
+  ↓
+VERIFY
+  ├─ security diff review
+  ├─ project-native security scanner when available
+  ├─ dependency vulnerability check when relevant/available
+  └─ targeted security tests
+```
+
+A task is treated as security-sensitive when the request or discovered impact touches authentication, authorization, sessions, tokens, passwords, file uploads/filesystem access, database queries with user-controlled data, user-controlled URLs, HTML rendering, command/process execution, payments, secrets/credentials, or another comparable trust boundary.
+
+Planning records the affected trust boundary, controlled/untrusted inputs, protected assets, abuse/failure cases, existing controls to preserve, and the evidence needed for verification. Build applies framework-native secure defaults and relevant surface-specific controls. Verify re-classifies from the final diff so a sensitive change cannot escape review merely because planning missed it.
+
+For example, refresh-token/session work reviews token rotation/expiry, revocation, replay risk, cookie flags, session fixation, authorization boundaries, and sensitive token logging. File-upload work reviews size limits, MIME/extension handling, path traversal, filename sanitization, overwrite behavior, execution risk, storage boundaries, and authorization.
+
+For security-sensitive tasks, normal lint/type/test/build success or runtime `PASS_VERIFIED` is not enough to call the task complete. Verification records a dedicated **Security evidence** section with the security diff review, targeted tests/checks, scanner results when available, dependency-vulnerability evidence when relevant, and explicit limitations. Missing scanners are reported rather than silently treated as success.
+
 ## Persistent context architecture
 
 The kit does not treat chat history or old task folders as the source of truth.
