@@ -84,8 +84,6 @@ def create_repo(root: Path, size: int) -> None:
 
     package = root / "src" / "pkg"
     package.mkdir(parents=True)
-    (root / "src" / "__init__.py").write_text("", encoding="utf-8")
-    (package / "__init__.py").write_text("", encoding="utf-8")
     for index in range(size):
         path = package / "mod_{:05d}.py".format(index)
         lines = []
