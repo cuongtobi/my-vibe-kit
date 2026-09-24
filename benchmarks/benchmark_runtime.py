@@ -89,7 +89,7 @@ def create_repo(root: Path, size: int) -> None:
         lines = []
         if index:
             lines.append(
-                "from src.pkg.mod_{:05d} import value as previous_value".format(index - 1)
+                "from pkg.mod_{:05d} import value as previous_value".format(index - 1)
             )
         if index == size // 2:
             lines.extend(
@@ -120,8 +120,8 @@ def benchmark_size(size: int) -> Dict[str, object]:
         context, context_rebuild = timed(lambda: vibe_core.project_context(root, force=True))
         graph, dependency_rebuild = timed(lambda: vibe_core.dependency_graph(root))
 
-        _, context_hit = timed(lambda: vibe_core.project_context(root))
-        _, dependency_hit = timed(lambda: vibe_core.dependency_graph(root))
+        cached_context, context_hit = timed(lambda: vibe_core.project_context(root))
+        cached_graph, dependency_hit = timed(lambda: vibe_core.dependency_graph(root))
 
         vibe_core.start_task(
             root,
@@ -138,6 +138,25 @@ def benchmark_size(size: int) -> Dict[str, object]:
         inc_context, context_incremental = timed(lambda: vibe_core.project_context(root))
         inc_graph, dependency_incremental = timed(lambda: vibe_core.dependency_graph(root))
 
+        expected_edges = max(size - 1, 0)
+        observed_edges = len(graph.get("edges") or [])
+        validations = {
+            "source_file_count_exact": context.get("source_file_count") == size,
+            "dependency_node_count_exact": len(graph.get("nodes") or []) == size,
+            "dependency_chain_complete": observed_edges == expected_edges,
+            "context_cache_hit": (cached_context.get("cache") or {}).get("mode") == "CACHE_HIT",
+            "dependency_cache_hit": (cached_graph.get("cache") or {}).get("mode") == "CACHE_HIT",
+            "context_incremental": (inc_context.get("cache") or {}).get("mode") == "INCREMENTAL_REFRESH",
+            "dependency_incremental": (inc_graph.get("cache") or {}).get("mode") == "INCREMENTAL_REFRESH",
+        }
+        failed = [name for name, passed in validations.items() if not passed]
+        if failed:
+            raise RuntimeError(
+                "Benchmark fixture/runtime validation failed for {} files: {}".format(
+                    size, ", ".join(failed)
+                )
+            )
+
         return {
             "size": size,
             "setup_seconds": setup_seconds,
@@ -150,7 +169,9 @@ def benchmark_size(size: int) -> Dict[str, object]:
             "dependency_incremental_seconds": dependency_incremental,
             "source_files": context.get("source_file_count"),
             "dependency_nodes": len(graph.get("nodes") or []),
-            "dependency_edges": len(graph.get("edges") or []),
+            "dependency_edges": observed_edges,
+            "expected_dependency_edges": expected_edges,
+            "validations": validations,
             "retrieval_confidence": relevant.get("retrieval_confidence"),
             "retrieval_target_count": len(relevant.get("targets") or []),
             "incremental_context_mode": (inc_context.get("cache") or {}).get("mode"),
