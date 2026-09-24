@@ -267,7 +267,8 @@ def task_aware_stack(
     for alias, framework in TASK_FRAMEWORK_ALIASES.items():
         if framework not in frameworks:
             continue
-        if alias not in folded_request:
+        pattern = r"(?<![a-z0-9])" + re.escape(alias) + r"(?![a-z0-9])"
+        if re.search(pattern, folded_request) is None:
             continue
         candidates = FRAMEWORK_LANGUAGES.get(framework, ())
         selected = next((language for language in candidates if language in scores), None)
