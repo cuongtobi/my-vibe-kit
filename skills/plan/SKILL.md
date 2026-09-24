@@ -67,25 +67,40 @@ Understand the smallest safe change before implementation.
    - clean-code and dependency rules from the architecture policy,
    - related tests,
    - project commands that can verify the change.
-8. Run impact analysis for identified targets when the runtime is installed:
+8. Classify the task as `security-sensitive` or `standard`. Treat it as security-sensitive when the request or affected code touches authentication, authorization, sessions, tokens, passwords, file upload/filesystem access, database queries using user-controlled data, user-controlled URLs, HTML rendering, command/process execution, payments, secrets/credentials, or another comparable trust boundary. Classification comes from both the request and discovered impact; a neutral-sounding task is still sensitive if the affected code crosses one of these boundaries.
+
+   For a security-sensitive task, record:
+   - security-sensitive surfaces and trust boundaries,
+   - attacker/user-controlled inputs and protected assets,
+   - plausible abuse/failure cases introduced or affected by the change,
+   - existing framework/project security controls that must remain intact,
+   - targeted tests/manual checks required for those risks,
+   - established project-native security scanner and dependency-vulnerability commands when available and relevant.
+
+   Examples:
+   - refresh-token/session work: token rotation and expiry, revocation, replay risk, cookie flags, session fixation, authorization boundaries, and secret/token logging;
+   - file upload work: size limits, extension/MIME validation, path traversal, filename sanitization, overwrite behavior, execution risk, storage boundary, and authorization.
+
+   Do not claim a task is secure because this classification was performed. The purpose is to prevent security-sensitive changes from silently passing without explicit review/evidence.
+9. Run impact analysis for identified targets when the runtime is installed:
 
    ```bash
    python .vibe/tools/vibe.py impact <target-file> [<target-file> ...]
    ```
 
-9. For a bug:
+10. For a bug:
    - reproduce the symptom using an existing test/command when possible,
    - trace the execution path,
    - identify the root cause from evidence,
    - identify an existing regression test or specify one to add during build.
-10. For a change:
+11. For a change:
    - describe current behavior,
    - describe desired behavior,
    - identify compatibility requirements.
-11. For a refactor:
+12. For a refactor:
    - record invariants that must remain unchanged,
    - capture baseline tests/behavior before editing.
-12. Write the implementation plan to the current task's `plan.md` when task storage is available; otherwise report it in the response. If the runtime is missing, use scoped repository inspection and existing project commands, distinguishing observed facts from inferences. Do not run nonexistent `.vibe` tools or invent runtime artifacts/statuses.
+13. Write the implementation plan to the current task's `plan.md` when task storage is available; otherwise report it in the response. If the runtime is missing, use scoped repository inspection and existing project commands, distinguishing observed facts from inferences. Do not run nonexistent `.vibe` tools or invent runtime artifacts/statuses.
 
 ## Plan output
 
@@ -100,6 +115,7 @@ Include:
 - dependencies and consumers,
 - affected tests,
 - compatibility/architecture constraints,
+- security classification; for security-sensitive tasks, security surfaces/trust boundaries, abuse/failure cases, controls to preserve, and required security evidence,
 - ordered implementation steps,
 - verification commands,
 - pre-existing changes and baseline availability,

@@ -254,6 +254,38 @@ Tránh comment chỉ lặp lại dòng code kế tiếp, lặp tên function/var
 
 Skill `build` phải cập nhật/xóa comment gần vùng sửa khi behavior đã thay đổi. Skill `verify` kiểm tra cả hai chiều: thiếu rationale ở code thực sự khó hiểu và comment thừa/sai/stale làm việc bảo trì khó hơn.
 
+## Security Policy
+
+Kit **không** tuyên bố hay đảm bảo code được tạo/sửa là an toàn tuyệt đối. Mục tiêu security của kit hẹp hơn và có thể audit:
+
+> **Security-sensitive changes cannot silently pass without explicit security review/evidence.**
+
+Workflow:
+
+```text
+PLAN
+  ↓
+identify security-sensitive surface
+  ↓
+BUILD
+  ↓
+secure coding rules
+  ↓
+VERIFY
+  ├─ security diff review
+  ├─ project-native security scanner nếu có
+  ├─ dependency vulnerability check khi phù hợp/có sẵn
+  └─ targeted security tests
+```
+
+Task được coi là `security-sensitive` khi request hoặc impact thực tế chạm vào authentication, authorization, session, token, password, file upload/filesystem, database query với dữ liệu do user kiểm soát, URL do user kiểm soát, HTML rendering, command/process execution, payment, secrets/credentials hoặc trust boundary tương đương.
+
+Ở bước plan, kit ghi rõ trust boundary bị ảnh hưởng, input không đáng tin cậy, tài sản cần bảo vệ, abuse/failure case, security control hiện có phải giữ và evidence cần cho verify. Build áp dụng secure default native của framework cùng các control phù hợp từng surface. Verify phân loại lại từ diff cuối cùng để một thay đổi nhạy cảm không thể thoát security review chỉ vì bước plan bỏ sót.
+
+Ví dụ với refresh token/session, review phải xét token rotation/expiry, revocation, replay risk, cookie flags, session fixation, authorization boundary và việc log token/secret. Với file upload, review phải xét giới hạn dung lượng, MIME/extension, path traversal, filename sanitization, overwrite behavior, execution risk, storage boundary và authorization.
+
+Với task security-sensitive, lint/type/test/build pass hoặc runtime `PASS_VERIFIED` **chưa đủ** để coi task hoàn tất. Verify phải ghi một phần **Security evidence** riêng gồm security diff review, targeted test/check, kết quả scanner nếu có, dependency-vulnerability evidence khi phù hợp và các limitation còn lại. Nếu project không có scanner thì phải ghi rõ thay vì âm thầm coi là success.
+
 ## Kiến trúc persistent context
 
 Kit không coi chat history hoặc toàn bộ task cũ là source of truth.

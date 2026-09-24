@@ -62,19 +62,41 @@ Produce evidence that the change satisfies the request without introducing unexp
    - public/shared contracts and non-obvious modules/functions have useful documentation when callers or maintainers need it,
    - touched comments, docstrings, and nearby documentation still match current behavior,
    - TODO/FIXME notes introduced or touched by the change are actionable and specific.
-7. For bug fixes, verify:
+7. Determine the final security classification from both the plan and the actual diff. If either indicates authentication, authorization, sessions, tokens, passwords, file upload/filesystem access, database queries using user-controlled data, user-controlled URLs, HTML rendering, command/process execution, payments, secrets/credentials, or another comparable trust boundary, treat the task as security-sensitive even if the original plan missed it.
+
+   For every security-sensitive task, produce explicit security evidence:
+   - perform a security-focused diff review against the identified trust boundaries and abuse/failure cases,
+   - run focused negative/abuse-case tests or direct checks for the security properties affected by the change,
+   - run established project-native security scanning when it already exists or is otherwise available in the authorized environment,
+   - run the ecosystem's established dependency-vulnerability check when dependency/package changes or the affected surface make it relevant and the command is available,
+   - review the relevant surface-specific controls from the build security policy,
+   - record commands/checks, observed results, untested assumptions, unavailable tooling, and remaining limitations.
+
+   Generic unit tests, lint, type checking, build success, a clean dependency graph, or runtime `PASS_VERIFIED` alone are not security evidence. Absence of a scanner does not automatically fail the task, but it must be stated explicitly and replaced with the strongest feasible targeted evidence. Do not claim that code is secure or security-guaranteed.
+
+8. For bug fixes, verify:
    - original reproduction no longer fails,
    - regression test passes,
    - nearby behavior still passes.
-8. For refactors, verify baseline behavior still passes.
-9. Map every acceptance criterion to actual evidence in `acceptance.md` in the current task, or in the response when task storage is unavailable:
+9. For refactors, verify baseline behavior still passes.
+10. Map every acceptance criterion to actual evidence in `acceptance.md` in the current task, or in the response when task storage is unavailable:
 
    | Criterion ID | Expected result | Command/test/manual evidence | Result and limitations |
    | --- | --- | --- | --- |
    | AC1 | Observable behavior from the plan | Actual check and its observed outcome | met / unmet / unverified, with any gap |
 
    Report the runtime status exactly and the acceptance results separately. Passing configured commands does not establish that every requested behavior was tested. An unmet/unverified required criterion or missing required comparison keeps the task incomplete even if runtime checks pass.
-10. Evidence must correspond to the final changes. If review leads to further code, test, or configuration edits, rerun the affected checks and runtime verification, then update the acceptance evidence. Documentation-only edits require the relevant document checks.
+
+   For a security-sensitive task, `acceptance.md` (or the response when task storage is unavailable) must also contain a **Security evidence** section with:
+   - final classification and affected security surfaces,
+   - trust boundaries/abuse cases reviewed,
+   - targeted security tests/checks and outcomes,
+   - security scanner result or explicit "not available/not configured",
+   - dependency-vulnerability result when relevant or explicit reason it was not applicable/available,
+   - remaining security limitations.
+
+   Missing required security evidence keeps the task incomplete even when runtime verification reports `PASS_VERIFIED`.
+11. Evidence must correspond to the final changes. If review leads to further code, test, or configuration edits, rerun the affected checks and runtime verification, then update the acceptance evidence. Documentation-only edits require the relevant document checks.
 
 ## Status rules
 

@@ -45,6 +45,32 @@ Apply comments and documentation selectively as part of implementation quality:
 - Do not comment generated/vendor code unless the project owns and intentionally maintains that code.
 - Follow the repository's existing comment/docstring conventions when they are compatible with these rules.
 
+## Security policy
+
+If the plan marks the task security-sensitive, or implementation reveals a security-sensitive surface the plan missed, stop treating security as implicit: update the plan/criteria as needed and apply the relevant secure-coding controls.
+
+General rules:
+
+- Preserve authentication, authorization, validation, isolation, and secret-handling controls unless the requested behavior explicitly changes them and the plan records that contract.
+- Prefer framework-native security mechanisms and safe defaults over custom security code.
+- Validate at trust boundaries, encode/escape at the output sink, use least privilege, and fail closed where access-control decisions are involved.
+- Never hardcode, expose, or log secrets, credentials, raw passwords, access/refresh tokens, session identifiers, private keys, or payment credentials.
+- Do not invent cryptography, password hashing, token formats, or random-token generation when established, reviewed primitives already exist.
+- Avoid shell/process execution with user-controlled strings; use structured arguments and existing safe APIs. Avoid dynamically constructing database queries from untrusted input when parameterized/native query APIs are available.
+- Do not disable or weaken CSRF, XSS/output encoding, SSRF/network restrictions, authorization checks, TLS/certificate checks, cookie protections, upload restrictions, or similar controls merely to make the implementation easier.
+- Add focused negative/abuse-case tests for the security properties changed by the task when they can be exercised at the project's normal test boundary.
+
+Surface-specific review prompts are requirements to assess when applicable, not a claim that every item applies to every task:
+
+- **Authentication/session/token/password:** authorization boundary, token/session rotation and expiry, revocation, replay, fixation, cookie flags, credential storage, brute-force/rate-limit behavior when in scope, and sensitive logging.
+- **File upload/filesystem:** size limits, MIME/extension handling, path traversal, filename normalization/sanitization, overwrite behavior, executable content, storage boundary, symlink behavior when relevant, and authorization.
+- **Database/user-controlled query data:** parameterization, injection, unsafe dynamic identifiers, mass assignment, tenant/row ownership, transaction/integrity boundaries, and least-privilege data access.
+- **User-controlled URL/network fetch:** scheme/host restrictions, redirects, private/internal network reachability, credential forwarding, DNS/redirect SSRF behavior when relevant, and response-size/time limits.
+- **HTML/template/rendering:** contextual output encoding, unsafe HTML bypasses, script/URL injection, template injection, and applicable CSRF/CSP behavior.
+- **Command/process execution:** shell avoidance, argument separation, executable selection, environment inheritance, path handling, working directory, and privilege boundary.
+- **Payments/webhooks:** server-side amount/currency authority, idempotency, authorization, webhook/signature verification, replay handling, state transitions, and secret logging/storage.
+- **Secrets/credentials:** source-control exposure, logs/errors/telemetry, storage, rotation/revocation path, least privilege, and accidental client-side exposure.
+
 ## Implementation rules
 
 - Prefer existing project patterns and dependencies.
