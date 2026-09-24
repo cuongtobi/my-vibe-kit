@@ -19,9 +19,9 @@ Complete one software change with controlled scope and runtime evidence.
    - `refactor`: restructure while preserving behavior.
    - `hotfix`: urgent bug fix where scope must be especially small.
 3. Apply the sibling `plan` skill first. If the host cannot invoke sibling skills directly, read `../plan/SKILL.md` and follow it. Read the current task before creating one; continue the same objective in place and preserve its original baselines.
-4. Do not implement until the plan identifies targets, dependencies, impact, constraints, acceptance criteria, and their verification evidence. A request to implement authorizes this workflow within its scope without a second plan approval. A planning-only request ends after plan; honor explicit user approval boundaries and ask only for missing decisions that materially affect the outcome.
+4. Do not implement until the plan identifies targets, dependencies, impact, constraints, acceptance criteria, and their verification evidence. The plan must also classify whether the task is security-sensitive and, when it is, identify the relevant security surfaces and required evidence. A request to implement authorizes this workflow within its scope without a second plan approval. A planning-only request ends after plan; honor explicit user approval boundaries and ask only for missing decisions that materially affect the outcome.
 5. Apply the sibling `build` skill.
-6. Apply the sibling `verify` skill.
+6. Apply the sibling `verify` skill. A security-sensitive task is not complete merely because normal runtime checks pass; its explicit security evidence must also be complete.
 7. Route gaps and failures by cause using the table below. Keep the existing task and baseline during retries; do not reopen unrelated scope.
 8. Finish with a concise summary of:
    - mode,
@@ -42,6 +42,7 @@ Complete one software change with controlled scope and runtime evidence.
 | Runtime is absent | Use scoped inspection and the project's own checks; distinguish manual evidence from runtime verification and do not invent a runtime status. |
 | Relevant context is low-confidence, fallback-truncated, empty, or unrelated | Inspect `retrieval_confidence`, fallback evidence, and indexed matches; then use a bounded project-native search for dynamic/framework relationships, identify explicit targets, and rerun relevant/impact when available. |
 | A baseline is missing or invalid after implementation began | Preserve available evidence and report the unavailable comparison. Never manufacture a pre-change baseline from current code. Restore one only from authentic pre-change evidence. |
+| Security-sensitive evidence is missing, incomplete, or contradicted by the diff | Return to plan/build as appropriate, identify the affected trust boundary, add the required targeted checks, and rerun verification. Do not downgrade the task to non-sensitive merely to complete it. |
 
 Retry when a concrete diagnosis or change justifies another attempt. If the same blocker remains and no new evidence or authorized remedy is available, report what was attempted and what is needed; do not cycle through build/verify without progress.
 
