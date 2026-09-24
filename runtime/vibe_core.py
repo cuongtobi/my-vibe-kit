@@ -183,10 +183,6 @@ def runtime_dir(root: Path) -> Path:
     return root / ".vibe" / "runtime"
 
 
-def tasks_dir(root: Path) -> Path:
-    return root / ".vibe" / "tasks"
-
-
 def config_path(root: Path) -> Path:
     return root / ".vibe" / "config.json"
 
@@ -479,6 +475,13 @@ def _materialize_task_view(
     if not isinstance(task, dict):
         return None
     active_query = query if query is not None else str(task.get("request") or "")
+    if targets is None:
+        task_path = current_task_path(root)
+        previous_relevant = json_load(task_path / "relevant-context.json", {}) if task_path else {}
+        if isinstance(previous_relevant, dict):
+            saved_targets = previous_relevant.get("targets")
+            if isinstance(saved_targets, list):
+                targets = [str(item) for item in saved_targets if isinstance(item, str)]
     if source_paths is None:
         file_index = load_cache(root, "files", {})
         source_paths = [
