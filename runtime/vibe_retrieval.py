@@ -296,8 +296,8 @@ def fallback_content_scan(
     for relative in limited:
         path = root / relative
         try:
-            with path.open("r", encoding="utf-8", errors="replace") as handle:
-                text = handle.read(read_limit)
+            with path.open("rb") as handle:
+                text = handle.read(read_limit).decode("utf-8", errors="replace")
         except OSError:
             continue
         text_tokens = {
@@ -349,6 +349,7 @@ def build_relevant_payload(
     selected = [
         Path(item).as_posix() for item in (targets or []) if Path(item).as_posix() in node_set
     ]
+    explicit_target_valid = bool(targets) and bool(selected)
 
     profile = query_profile(query, custom_aliases)
     tokens = list(profile["tokens"])
@@ -401,7 +402,7 @@ def build_relevant_payload(
     elif not selected:
         selected = [path for path in sorted(changed) if path in node_set]
 
-    if targets:
+    if explicit_target_valid:
         retrieval = [
             {
                 "path": path,
@@ -449,7 +450,7 @@ def build_relevant_payload(
     top_score = 0
     if retrieval and isinstance(retrieval[0].get("score"), int):
         top_score = int(retrieval[0]["score"])
-    if targets:
+    if explicit_target_valid:
         confidence = "explicit"
     elif fallback["used"] and fallback["matches"]:
         confidence = "medium"
@@ -466,7 +467,7 @@ def build_relevant_payload(
         "query_tokens": tokens,
         "query_expansions": profile["expansions"],
         "targets": selected,
-        "retrieval_mode": "explicit-target" if targets else (
+        "retrieval_mode": "explicit-target" if explicit_target_valid else (
             "fallback-content-scan" if fallback["used"] and fallback["matches"] else "indexed-symbol-content"
         ),
         "retrieval_confidence": confidence,
