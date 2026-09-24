@@ -237,6 +237,23 @@ File này chứa:
 
 Clean Code mặc định gồm: tên rõ ý nghĩa, function/module tập trung, giảm nesting khi hợp lý, transport handler mỏng, lỗi/dependency rõ ràng, không mutable global state ẩn, không abstraction suy đoán, test theo behavior và ưu tiên code đơn giản hơn code “clever”.
 
+## Chính sách comment và documentation
+
+Kit coi comment là thông tin phục vụ bảo trì, không phải phần diễn giải lại code. Khi build và review, ưu tiên code tự giải thích bằng tên và cấu trúc; chỉ thêm comment khi cần giữ lại thông tin mà bản thân code không thể hiện rõ.
+
+Nên dùng comment/docstring cho các trường hợp như:
+
+- lý do tồn tại của một implementation hoặc tradeoff không hiển nhiên,
+- business rule hoặc constraint về compatibility,
+- security assumption và invariant quan trọng,
+- reasoning về performance, cache, invalidation hoặc concurrency,
+- thuật toán khó, edge case và workaround có chủ đích,
+- contract của public/shared API khi caller cần biết behavior, side effect, error hoặc lifecycle.
+
+Tránh comment chỉ lặp lại dòng code kế tiếp, lặp tên function/variable, giải thích cú pháp thông thường hoặc thêm docstring boilerplate cho private helper đơn giản. TODO/FIXME phải cụ thể và có thể hành động được.
+
+Skill `build` phải cập nhật/xóa comment gần vùng sửa khi behavior đã thay đổi. Skill `verify` kiểm tra cả hai chiều: thiếu rationale ở code thực sự khó hiểu và comment thừa/sai/stale làm việc bảo trì khó hơn.
+
 ## Kiến trúc persistent context
 
 Kit không coi chat history hoặc toàn bộ task cũ là source of truth.
