@@ -440,7 +440,7 @@ A 5,000-file repository therefore does not imply a 5,000-file model context.
 
 ## Default personal-project configuration
 
-The default v0.7 configuration is intentionally simple:
+The default v0.8 configuration is intentionally simple:
 
 ```json
 {
@@ -464,7 +464,13 @@ The default v0.7 configuration is intentionally simple:
     "max_files": 20000,
     "max_source_files": 20,
     "max_test_files": 10,
-    "max_related_modules": 8
+    "max_related_modules": 8,
+    "retrieval": {
+      "min_index_score": 6,
+      "fallback_max_scan_files": 20000,
+      "fallback_read_bytes": 131072,
+      "query_aliases": {}
+    }
   },
   "index": {
     "backend": "json",
@@ -479,7 +485,13 @@ The default v0.7 configuration is intentionally simple:
     "commands": []
   },
   "tasks": {
-    "auto_load_history": false
+    "auto_load_history": false,
+    "retention": {
+      "policy": "bounded",
+      "max_tasks": 100,
+      "max_age_days": 90,
+      "cleanup": "manual"
+    }
   }
 }
 ```
