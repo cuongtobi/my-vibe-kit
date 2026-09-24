@@ -440,7 +440,7 @@ Repo 5.000 file không đồng nghĩa model phải đọc 5.000 file.
 
 ## Config mặc định cho project cá nhân
 
-Config v0.7 mặc định được giữ đơn giản:
+Config v0.8 mặc định được giữ đơn giản:
 
 ```json
 {
@@ -464,7 +464,13 @@ Config v0.7 mặc định được giữ đơn giản:
     "max_files": 20000,
     "max_source_files": 20,
     "max_test_files": 10,
-    "max_related_modules": 8
+    "max_related_modules": 8,
+    "retrieval": {
+      "min_index_score": 6,
+      "fallback_max_scan_files": 20000,
+      "fallback_read_bytes": 131072,
+      "query_aliases": {}
+    }
   },
   "index": {
     "backend": "json",
@@ -479,7 +485,13 @@ Config v0.7 mặc định được giữ đơn giản:
     "commands": []
   },
   "tasks": {
-    "auto_load_history": false
+    "auto_load_history": false,
+    "retention": {
+      "policy": "bounded",
+      "max_tasks": 100,
+      "max_age_days": 90,
+      "cleanup": "manual"
+    }
   }
 }
 ```
