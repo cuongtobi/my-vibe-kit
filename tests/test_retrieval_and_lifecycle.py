@@ -171,6 +171,29 @@ class RetrievalAndLifecycleTests(unittest.TestCase):
         self.assertEqual(frontend["primary"], "typescript")
         self.assertEqual(backend["repository_primary"], "typescript")
 
+    def test_framework_names_require_token_boundaries(self):
+        stack = {
+            "primary": "python",
+            "languages": ["python", "go"],
+            "frameworks": ["gin"],
+        }
+        view = vibe_stacks.task_aware_stack(stack, "fix login flow")
+        self.assertEqual(view["primary"], "python")
+        self.assertEqual(view["task_primary_reason"], "repository-primary-fallback")
+
+    def test_invalid_explicit_target_is_low_confidence(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "actual.py").write_text("value = 1\n", encoding="utf-8")
+        self.init_git(root)
+
+        vibe_core.start_task(root, "change", "generic change")
+        data = vibe_core.relevant_context(root, ["missing.py"])
+
+        self.assertEqual(data["targets"], [])
+        self.assertEqual(data["retrieval_confidence"], "low")
+        self.assertTrue(data["needs_scoped_search"])
+
     def test_relevant_context_materializes_task_specific_adapter(self):
         temp, root = self.make_repo()
         self.addCleanup(temp.cleanup)
@@ -200,6 +223,31 @@ class RetrievalAndLifecycleTests(unittest.TestCase):
         )
 
         self.assertEqual(data["task_primary_stack"]["task_primary"], "python")
+        self.assertEqual(adapter["primary_language"]["id"], "python")
+
+    def test_task_target_stack_survives_later_dependency_refresh(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "pyproject.toml").write_text(
+            '[project]\ndependencies = ["fastapi"]\n',
+            encoding="utf-8",
+        )
+        (root / "package.json").write_text(
+            json.dumps({"dependencies": {"react": "^19.0.0"}}),
+            encoding="utf-8",
+        )
+        (root / "tsconfig.json").write_text("{}", encoding="utf-8")
+        (root / "api.py").write_text("def endpoint():\n    return True\n", encoding="utf-8")
+        (root / "view.tsx").write_text("export const View = () => null;\n", encoding="utf-8")
+        self.init_git(root)
+
+        vibe_core.start_task(root, "bug_fix", "fix bug")
+        vibe_core.relevant_context(root, ["api.py"])
+        vibe_core.dependency_graph(root)
+        adapter = json.loads(
+            (root / ".vibe/runtime/active-adapter.json").read_text(encoding="utf-8")
+        )
+
         self.assertEqual(adapter["primary_language"]["id"], "python")
 
     def test_task_gc_is_preview_first_and_never_deletes_current_task(self):
