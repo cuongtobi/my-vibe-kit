@@ -29,7 +29,7 @@ from vibe_tasks import (
     copy_to_current_task,
     current_task,
     current_task_path,
-    start_task,
+    start_task as start_task_record,
 )
 from vibe_state import (
     cache_status,
@@ -236,6 +236,12 @@ def load_config(root: Path) -> Dict[str, object]:
     retention.setdefault("max_age_days", 90)
     retention.setdefault("cleanup", "manual")
     return data
+
+
+def start_task(root: Path, mode: str, request: str) -> Dict[str, object]:
+    # Keep configuration validation at the public compatibility boundary.
+    load_config(root)
+    return start_task_record(root, mode, request)
 
 
 def detect_stack(root: Path) -> Dict[str, object]:
