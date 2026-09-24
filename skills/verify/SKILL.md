@@ -56,7 +56,12 @@ Produce evidence that the change satisfies the request without introducing unexp
    - no unrelated change,
    - no accidental public contract change,
    - error/edge states are handled,
-   - tests genuinely exercise the changed behavior.
+   - tests genuinely exercise the changed behavior,
+   - non-obvious decisions, invariants, workarounds, security assumptions, and performance/cache constraints have rationale where maintainers would otherwise be likely to misread them,
+   - comments do not merely narrate obvious code or duplicate names/syntax,
+   - public/shared contracts and non-obvious modules/functions have useful documentation when callers or maintainers need it,
+   - touched comments, docstrings, and nearby documentation still match current behavior,
+   - TODO/FIXME notes introduced or touched by the change are actionable and specific.
 7. For bug fixes, verify:
    - original reproduction no longer fails,
    - regression test passes,
