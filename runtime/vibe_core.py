@@ -30,6 +30,7 @@ from vibe_tasks import (
     current_task,
     current_task_path,
     start_task as start_task_record,
+    task_lifecycle,
 )
 from vibe_state import (
     cache_status,
@@ -1676,6 +1677,7 @@ def status(root: Path) -> Dict[str, object]:
         "verification_current": verification_current,
         "stack": detect_stack(root),
         "persistent_state": persistent_state_summary(root),
+        "task_history": task_lifecycle(root, load_config(root), apply=False),
         "runtime": {
             "project_map": (runtime_dir(root) / "project-map.json").exists(),
             "architecture_policy": (runtime_dir(root) / "architecture-policy.json").exists(),
