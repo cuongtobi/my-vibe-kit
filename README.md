@@ -84,7 +84,9 @@ If the target project has no reliable test/lint/typecheck/build command configur
 - File-based context instead of relying on chat history.
 - Persistent JSON context/dependency cache across sessions.
 - Git-aware incremental refresh instead of rescanning the whole repository for every task.
-- Bounded relevant-context retrieval before model reasoning.
+- Unicode-aware bounded relevant-context retrieval before model reasoning.
+- Controlled content fallback when indexed retrieval confidence is too low.
+- Task-aware primary stack selection for polyglot repositories without invalidating project-level caches.
 - Explicit modes: `feature`, `change`, `bug_fix`, `refactor`, `hotfix`.
 - Minimal-change implementation by default.
 - Runtime evidence before completion.
@@ -270,7 +272,7 @@ It is a performance cache, not project truth and not verification evidence.
 
 `index-state.json` records cache schema/scanner versions, artifact SHA-256 checksums, and the Git repository state associated with cached artifacts. Every context bundle (file index, context, framework, adapter, architecture) and dependency cache is checked before reuse or incremental refresh. Missing, corrupted, or inconsistent artifacts trigger a full rebuild; an empty valid repository remains cacheable.
 
-`file-index.json` also stores a bounded source-search index: discovered symbols plus high-signal identifier/content terms for each source file. The index is refreshed only for changed files during an incremental update. `content-hashes.json` separately caches verification content hashes so repeated source fingerprints reuse unchanged hashes instead of reopening every indexed file.
+`file-index.json` also stores a bounded source-search index: discovered symbols plus high-signal Unicode identifier/content terms for each source file. Tokens are Unicode-aware and keep both native and accent-folded comparison forms; common Vietnamese software phrases can expand to code-facing aliases such as login/session/expiry, and projects can add their own aliases in config. The index is refreshed only for changed files during an incremental update. `content-hashes.json` separately caches verification content hashes so repeated source fingerprints reuse unchanged hashes instead of reopening every indexed file.
 
 For cache invalidation, the runtime uses Git HEAD, dirty/untracked file hashes, and the runtime configuration hash. Git paths use NUL-delimited output so Unicode, whitespace, and rename paths remain intact. Git repositories index tracked files and non-ignored untracked files, subject to the kit's directory exclusions and file limit. Ignored generated files are excluded from the graph unless already tracked; outside Git, the filesystem scanner remains available and refreshes fully.
 
@@ -339,7 +341,26 @@ Default first-pass limits:
 - 8 related modules,
 - dependency depth 2.
 
-`relevant` ranks initial targets from filename/path evidence plus the persistent symbol/content index, records the match evidence, then expands through the bounded dependency neighborhood. The agent reads this bounded neighborhood first, then expands only when a concrete dependency, consumer, dynamic/framework relationship, contract, configuration path, or failing test requires more context.
+`relevant` ranks initial targets from filename/path evidence plus the persistent Unicode symbol/content index, records the match evidence, then expands through the bounded dependency neighborhood. Query normalization preserves Unicode, adds accent-folded forms, and applies built-in/configurable query aliases. If the top indexed score is below `context.retrieval.min_index_score`, a bounded content fallback runs instead of silently accepting a weak match.
+
+`relevant-context.json` records `retrieval_confidence`, `fallback`, and `needs_scoped_search`. A truncated fallback or low-confidence result is explicitly an evidence gap: the agent must use a scoped project-native search, identify explicit targets, and rerun `relevant`/`impact` rather than concluding that no other file is affected.
+
+For polyglot repositories, the persistent project cache still keeps the repository-level stack. The current task view then selects a task-aware primary language from explicit target-file extensions and framework/language evidence in the task request. This task view is materialized into `active-adapter.json` and `architecture-policy.json` without forcing a full project re-index.
+
+Default retrieval controls:
+
+```json
+{
+  "context": {
+    "retrieval": {
+      "min_index_score": 6,
+      "fallback_max_scan_files": 20000,
+      "fallback_read_bytes": 131072,
+      "query_aliases": {}
+    }
+  }
+}
+```
 
 The full dependency graph can exist on disk without being pasted into the model context.
 
@@ -373,14 +394,20 @@ Default policy:
 ```json
 {
   "tasks": {
-    "auto_load_history": false
+    "auto_load_history": false,
+    "retention": {
+      "policy": "bounded",
+      "max_tasks": 100,
+      "max_age_days": 90,
+      "cleanup": "manual"
+    }
   }
 }
 ```
 
 A new session must not enumerate and load every old task.
 
-Task records are always retained. `tasks.keep_history` is no longer a supported option: legacy `true` is tolerated, while `false` reports an explicit configuration error instead of silently doing nothing. New task IDs include a random suffix and directories are created exclusively, preventing same-second requests from sharing evidence. Continuing work reuses the current task rather than calling `task start` again.
+Task records are retained until an explicit cleanup. `tasks.keep_history` remains unsupported as an opt-out: legacy `true` is tolerated, while `false` reports an explicit configuration error instead of silently disabling evidence. The bounded retention policy only identifies cleanup candidates; it never deletes them automatically. Preview with `python .vibe/tools/vibe.py task gc` and delete eligible non-current records only with `python .vibe/tools/vibe.py task gc --apply`. The current task is never a cleanup candidate. New task IDs include a random suffix and directories are created exclusively, preventing same-second requests from sharing evidence. Continuing work reuses the current task rather than calling `task start` again.
 
 Historical tasks are loaded only when:
 
@@ -686,6 +713,8 @@ python .vibe/tools/vibe.py relevant
 python .vibe/tools/vibe.py relevant src/orders/service.py
 python .vibe/tools/vibe.py relevant --query "fix order cancellation"
 python .vibe/tools/vibe.py impact
+python .vibe/tools/vibe.py task gc
+python .vibe/tools/vibe.py task gc --apply
 python .vibe/tools/vibe.py snapshot before
 python .vibe/tools/vibe.py snapshot after
 python .vibe/tools/vibe.py verify --summary
@@ -696,7 +725,8 @@ python .vibe/tools/vibe.py rebuild
 Important commands:
 
 - `state` — shows whether persistent context/dependencies will be reused or refreshed.
-- `relevant` — builds bounded task context.
+- `relevant` — builds bounded task context and reports retrieval confidence/fallback evidence.
+- `task gc` — previews bounded task-history cleanup; add `--apply` only for explicit deletion.
 - `rebuild` — forces full context/dependency reconstruction for troubleshooting or large structural changes.
 
 `context`, `deps`, and `verify` accept mutually exclusive `--summary` and `--quiet` flags after the command. Default output remains the full JSON. `--summary` prints counts/status and the artifact path, omitting graph details, file lists, and command logs; `--quiet` suppresses stdout. Both still write full artifacts and preserve exit codes and stderr errors. Verification exit codes are `0` for `PASS_VERIFIED`, `1` for failed verification/runtime errors, and `3` for missing command configuration. On failure, read the relevant command results in `verification.json` rather than treating a quiet command as success.
@@ -717,7 +747,7 @@ Built-in zero-dependency baseline:
 
 Framework context is materialized into `.vibe/runtime/framework-map.json`.
 
-All detected language adapters, the primary language adapter, and framework adapters are materialized into `.vibe/runtime/active-adapter.json`.
+All detected language adapters, the repository primary language, the task-aware primary language, and framework adapters are materialized into `.vibe/runtime/active-adapter.json`. In polyglot projects, explicit target files have the strongest task-primary signal, followed by framework/language evidence in the task request; repository priority is the fallback.
 
 Reusable copies live under `.vibe/state/`.
 
@@ -820,7 +850,7 @@ A cache hit is never sufficient evidence for `PASS_VERIFIED`.
 
 Verification runs configured commands before capturing the final dependency graph and after snapshot. Each command's before/after input fingerprints are recorded. If any command changes indexed files or runtime configuration, the result is `FAIL_VERIFICATION` with `rerun_required: true` and `rerun_commands` listing all configured checks. Review the final changes and rerun those checks; passing requires stable inputs. Put disposable command output in ignored directories so it is not treated as a verification input.
 
-`verification.json` includes `task_id` and `source_fingerprint` (SHA-256 over the indexed file paths/content and runtime configuration, within the configured file limit). The first fingerprint builds `content-hashes.json`; subsequent fingerprints use repository deltas to re-hash only changed/new files while reusing hashes for unchanged files. `status.verification_current` checks the fingerprint and task identity; it indicates whether the report is current, not whether it passed. The verify summary includes these identifiers, `rerun_required`, and the dependency graph authority level so agents do not mistake static evidence for runtime proof. Executables are resolved through PATH/PATHEXT before execution, including Windows `.CMD` package-manager shims, without enabling `shell=True`. CI covers Linux and Windows.
+`verification.json` includes `task_id` and `source_fingerprint` (SHA-256 over the indexed file paths/content and runtime configuration, within the configured file limit). The first fingerprint builds `content-hashes.json`; subsequent fingerprints use repository deltas to re-hash only changed/new files while reusing hashes for unchanged files. `status.verification_current` checks the fingerprint and task identity; it indicates whether the report is current, not whether it passed. The verify summary includes these identifiers, `rerun_required`, and the dependency graph authority level so agents do not mistake static evidence for runtime proof. Executables are resolved through PATH/PATHEXT before execution, including Windows `.CMD` package-manager shims, without enabling `shell=True`. CI covers Linux, Windows, and macOS across Python 3.9, 3.11, and 3.13.
 
 An empty command list returns `NEEDS_VERIFICATION_CONFIG` (CLI exit code `3`), even when `verification.require_commands` is `false`. That setting cannot waive the requirement for executed checks before reporting `PASS_VERIFIED`.
 
@@ -1123,6 +1153,31 @@ Then rebuild:
 ```bash
 python .vibe/tools/vibe.py rebuild
 ```
+
+## Performance benchmark
+
+A standard-library-only synthetic benchmark is included at `benchmarks/benchmark_runtime.py`. By default it creates Git repositories with **1,000 / 5,000 / 20,000 Python source files** and measures:
+
+- full context rebuild,
+- dependency graph construction,
+- context/dependency cache hits,
+- multilingual task retrieval,
+- single-file incremental context refresh,
+- single-file incremental dependency refresh.
+
+Run the full benchmark locally:
+
+```bash
+python benchmarks/benchmark_runtime.py --sizes 1000 5000 20000
+```
+
+Machine-readable output:
+
+```bash
+python benchmarks/benchmark_runtime.py --sizes 1000 5000 20000 --json
+```
+
+CI runs a small benchmark smoke test. The `performance-benchmark` GitHub Actions workflow is manual and runs the full 1k/5k/20k matrix, uploading `benchmark-results.json` as an artifact. Compare runs on the same machine/runtime; absolute timings are environment-dependent.
 
 ### Why JSON instead of SQLite?
 
