@@ -876,9 +876,13 @@ my-vibe-kit/
 ├── runtime/
 │   ├── vibe.py
 │   ├── vibe_core.py
+│   ├── vibe_retrieval.py
+│   ├── vibe_tasks.py
 │   ├── vibe_stacks.py
 │   ├── vibe_architecture.py
 │   └── vibe_state.py
+├── benchmarks/
+│   └── benchmark_runtime.py
 ├── adapters/
 │   ├── languages/
 │   └── frameworks/
