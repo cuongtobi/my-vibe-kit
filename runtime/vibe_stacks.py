@@ -251,7 +251,12 @@ def task_aware_stack(
     reasons: List[str] = []
 
     for raw in target_files or []:
-        language = LANGUAGE_SUFFIXES.get(Path(str(raw)).suffix.lower())
+        suffix = Path(str(raw)).suffix.lower()
+        language = LANGUAGE_SUFFIXES.get(suffix)
+        if language is None and suffix in {".vue", ".svelte"}:
+            language = "typescript" if "typescript" in scores else (
+                "javascript" if "javascript" in scores else None
+            )
         if language in scores:
             scores[language] += 100
             reasons.append("target-file:{}".format(language))
@@ -285,11 +290,22 @@ def task_aware_stack(
         primary = repository_primary
         reason = "repository-primary-fallback"
 
+    repository_frameworks = [str(item) for item in (stack.get("frameworks") or [])]
+    ordered_frameworks = sorted(
+        repository_frameworks,
+        key=lambda framework: (
+            0 if primary in FRAMEWORK_LANGUAGES.get(framework, ()) else 1,
+            repository_frameworks.index(framework),
+        ),
+    )
+
     data["repository_primary"] = repository_primary
     data["task_primary"] = primary
     data["task_primary_reason"] = reason
     data["task_language_scores"] = scores
     data["primary"] = primary
+    data["repository_frameworks"] = repository_frameworks
+    data["frameworks"] = ordered_frameworks
     return data
 
 def effective_adapter(
