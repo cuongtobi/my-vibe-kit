@@ -127,6 +127,19 @@ plan / impact / build / verify
 
 Với frontend, adapter có thể merge nhiều lớp. Project TypeScript + React + Vite có thể active cả ba; project Next.js có thể active Next.js + React nhưng architecture guidance ưu tiên meta-framework. Tương tự Nuxt được ưu tiên hơn Vue và SvelteKit ưu tiên hơn Svelte. Vite chỉ là tooling adapter, không quyết định application architecture.
 
+## Ranh giới module runtime
+
+Runtime được tách theo trách nhiệm để tránh tiếp tục phình thành một core đơn khối:
+
+- `vibe_core.py` — orchestration, project/dependency graph, impact, snapshot, verification.
+- `vibe_retrieval.py` — Unicode tokenization, query expansion, confidence scoring, bounded fallback và relevant-context selection.
+- `vibe_tasks.py` — task record cùng retention/GC lifecycle explicit.
+- `vibe_stacks.py` — stack detection, task-aware stack selection, adapter và framework context.
+- `vibe_state.py` — persistent cache và Git delta.
+- `vibe_architecture.py` — architecture/clean-code policy đã resolve.
+
+Public CLI/skill vẫn tập trung ở `vibe.py` và bốn skill cốt lõi.
+
 ## Chính sách kiến trúc
 
 Với project mới, mặc định:
