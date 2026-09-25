@@ -65,6 +65,17 @@ PATH_HINTS = {
 }
 
 
+def _safe_repo_relative(root: Path, value: object) -> Optional[str]:
+    if not isinstance(value, str) or not value:
+        return None
+    base = root.resolve()
+    candidate = (root / value).resolve()
+    try:
+        return candidate.relative_to(base).as_posix()
+    except ValueError:
+        return None
+
+
 def _matches(text: str, patterns: Sequence[str]) -> List[str]:
     lowered = text.lower()
     return [pattern for pattern in patterns if re.search(pattern, lowered, flags=re.I)]
@@ -79,7 +90,9 @@ def classify_security_candidates(
 ) -> Dict[str, object]:
     normalized_files = []
     for value in files or []:
-        relative = Path(str(value)).as_posix()
+        relative = _safe_repo_relative(root, value)
+        if relative is None:
+            continue
         if relative not in normalized_files:
             normalized_files.append(relative)
         if len(normalized_files) >= MAX_CLASSIFIER_FILES:
