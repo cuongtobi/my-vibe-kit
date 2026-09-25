@@ -184,6 +184,14 @@ class InstallerTests(unittest.TestCase):
             custom_skill.parent.mkdir(parents=True)
             custom_skill.write_text("# Custom\n", encoding="utf-8")
 
+            # Simulate the pre-v2 manifest used by 0.9.1 installations.
+            manifest_path = target / ".vibe/install-manifest.json"
+            legacy_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            legacy_manifest.pop("schema_version", None)
+            legacy_manifest.pop("managed_files", None)
+            legacy_manifest["kit_version"] = "0.9.1"
+            manifest_path.write_text(json.dumps(legacy_manifest), encoding="utf-8")
+
             upgraded = self.run_installer(target, "--force")
             self.assertEqual(upgraded.returncode, 0, upgraded.stdout + upgraded.stderr)
             self.assertFalse(obsolete_runtime.exists())
@@ -191,6 +199,24 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue(custom_skill.exists())
             manifest = json.loads((target / ".vibe/install-manifest.json").read_text(encoding="utf-8"))
             self.assertNotIn(".vibe/tools/obsolete_runtime.py", manifest["managed_files"])
+
+    def test_force_upgrade_rejects_manifest_path_traversal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "project"
+            target.mkdir()
+            first = self.run_installer(target)
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+
+            protected = target / "do-not-delete.txt"
+            protected.write_text("keep\n", encoding="utf-8")
+            manifest_path = target / ".vibe/install-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["managed_files"].append(".vibe/tools/../../do-not-delete.txt")
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            upgraded = self.run_installer(target, "--force")
+            self.assertEqual(upgraded.returncode, 0, upgraded.stdout + upgraded.stderr)
+            self.assertEqual(protected.read_text(encoding="utf-8"), "keep\n")
 
     def test_dry_run_does_not_create_project_files(self):
         with tempfile.TemporaryDirectory() as tmp:
