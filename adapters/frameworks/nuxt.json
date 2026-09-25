@@ -1,6 +1,7 @@
 {
   "id": "nuxt",
   "kind": "framework",
+  "frontend": true,
   "language": "javascript-or-typescript",
   "detect": [
     "package dependency nuxt"
