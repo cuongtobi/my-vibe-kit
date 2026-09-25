@@ -7,7 +7,7 @@ import shutil
 import sys
 import zipfile
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence
+from typing import Dict, Iterable, List, Optional, Sequence
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "runtime"))
@@ -159,7 +159,7 @@ def _under_active_prefix(relative: str, prefixes: Sequence[str]) -> bool:
     return any(normalized == prefix.rstrip("/") or normalized.startswith(prefix) for prefix in prefixes)
 
 
-def _safe_managed_target(target: Path, relative: str) -> Path | None:
+def _safe_managed_target(target: Path, relative: str) -> Optional[Path]:
     path = Path(relative)
     if path.is_absolute() or ".." in path.parts:
         return None
