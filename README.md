@@ -127,6 +127,14 @@ plan / impact / build / verify
 
 For frontend stacks, adapters are composable. A TypeScript + React + Vite project can activate all three relevant layers; a Next.js project can activate Next.js plus React, while architecture guidance prioritizes the meta-framework. Likewise Nuxt is prioritized over Vue and SvelteKit over Svelte. Vite remains a tooling adapter rather than the source of application architecture.
 
+### Lightweight frontend quality policy
+
+Frontend work stays inside the same four-skill workflow; there is no separate design/polish/audit command. The runtime adds an advisory `frontend` block to relevant-context/verification when request or target evidence indicates UI work, including a lightweight surface hint, refine-vs-redesign intent, optional `DESIGN.md` presence, five UI acceptance dimensions, and a two-round visual-QA ceiling.
+
+The shared frontend policy lives under the existing `vibe` skill reference tree and is loaded on demand by plan/build/verify. `DESIGN.md` is optional: when absent, the agent infers the incumbent visual system from bounded relevant code such as tokens, theme configuration, shared components, CSS variables, fonts, spacing, and nearby screens. HTML/CSS/Sass/Less/Astro files are included in the bounded source index so UI work does not depend only on JS/TS filenames.
+
+Verification reuses project-native tooling. Existing Playwright/Cypress/browser checks may be used when available, but the kit does not install a browser engine or visual tool solely for frontend policy enforcement. When visual verification is unavailable, that is recorded as an evidence limitation rather than silently treated as verified.
+
 ## Runtime module boundaries
 
 The runtime is intentionally split by responsibility instead of continuing to grow one monolithic core:
@@ -134,7 +142,7 @@ The runtime is intentionally split by responsibility instead of continuing to gr
 - `vibe_core.py` — orchestration, project/dependency graph, impact, snapshots, verification.
 - `vibe_retrieval.py` — Unicode tokenization, query expansion, confidence scoring, bounded fallback, relevant-context selection.
 - `vibe_tasks.py` — task records and explicit retention/GC lifecycle.
-- `vibe_stacks.py` — stack detection, task-aware stack selection, adapters, framework context.
+- `vibe_stacks.py` — stack detection, task-aware stack selection, adapters, framework context, and lightweight frontend-task classification.
 - `vibe_state.py` — persistent cache and Git delta.
 - `vibe_architecture.py` — resolved architecture/clean-code policy.
 
