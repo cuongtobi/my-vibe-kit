@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from vibe_contracts import artifact_is_valid, stamp_artifact
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -61,13 +63,13 @@ def start_task(root: Path, mode: str, request: str) -> Dict[str, object]:
         except FileExistsError:
             continue
 
-    task = {
+    task = stamp_artifact("task", {
         "id": task_id,
         "mode": mode,
         "request": request,
         "created_at": utc_now(),
         "path": str(task_path.relative_to(root)),
-    }
+    })
     json_dump(task_path / "task.json", task)
     (task_path / "request.md").write_text(request.strip() + "\n", encoding="utf-8")
     json_dump(runtime_dir(root) / "current-task.json", task)
@@ -76,7 +78,7 @@ def start_task(root: Path, mode: str, request: str) -> Dict[str, object]:
 
 def current_task(root: Path) -> Optional[Dict[str, object]]:
     data = json_load(runtime_dir(root) / "current-task.json", None)
-    return data if isinstance(data, dict) else None
+    return data if artifact_is_valid("task", data) else None
 
 
 def current_task_path(root: Path) -> Optional[Path]:
