@@ -18,7 +18,7 @@ from vibe_stacks import (  # noqa: E402
     discover_verification_commands as discover_verification_commands_full,
 )
 
-VERSION = "0.9.0"
+VERSION = "0.9.1"
 SUPPORTED_AGENTS = ("codex", "claude", "antigravity")
 
 

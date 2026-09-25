@@ -54,8 +54,11 @@ Produce evidence that the change satisfies the request without introducing unexp
 6. Inspect unstaged changes (`git diff`), staged changes (`git diff --cached`), and relevant untracked files listed by `git status --short --untracked-files=all`. Compare with the initial working-tree record; preserve and identify pre-existing changes. Review the task's changes semantically:
    - requested behavior is present,
    - no unrelated change,
+   - every changed line traces to the request, an acceptance criterion, required regression/compatibility/security evidence, or cleanup caused by this patch,
+   - no speculative feature/configurability/abstraction was added without a concrete requirement,
+   - no adjacent refactor/formatting/cleanup is mixed into the task merely because it was noticed,
    - no accidental public contract change,
-   - error/edge states are handled,
+   - error/edge states are handled when plausible under established contracts, without invented defensive branches for provably impossible states,
    - tests genuinely exercise the changed behavior,
    - non-obvious decisions, invariants, workarounds, security assumptions, and performance/cache constraints have rationale where maintainers would otherwise be likely to misread them,
    - comments do not merely narrate obvious code or duplicate names/syntax,

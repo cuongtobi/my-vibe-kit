@@ -59,6 +59,12 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue((target / ".vibe/tools/vibe_tasks.py").exists())
             self.assertTrue((target / "AGENTS.md").exists())
             self.assertTrue((target / "CLAUDE.md").exists())
+            installed_agents = (target / "AGENTS.md").read_text(encoding="utf-8")
+            installed_claude = (target / "CLAUDE.md").read_text(encoding="utf-8")
+            self.assertIn("## Behavioral coding policy", installed_agents)
+            self.assertIn("Changed-line traceability", installed_agents)
+            self.assertIn("@AGENTS.md", installed_claude)
+            self.assertIn("behavioral coding policy", installed_claude.lower())
 
             config = json.loads(
                 (target / ".vibe/config.json").read_text(encoding="utf-8")
@@ -95,6 +101,10 @@ class InstallerTests(unittest.TestCase):
             self.assertFalse((target / ".vibe/adapters/python.json").exists())
             self.assertFalse((target / ".vibe/adapters/typescript.json").exists())
             self.assertFalse((target / ".vibe/adapters/generic.json").exists())
+            manifest = json.loads(
+                (target / ".vibe/install-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["kit_version"], "0.9.1")
 
     def test_laravel_install_detects_stack_and_verification(self):
         with tempfile.TemporaryDirectory() as tmp:

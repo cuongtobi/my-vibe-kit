@@ -20,6 +20,17 @@ An implementation request authorizes proceeding through plan, build, and verify 
 5. Check the target scope, acceptance criteria, and `working-tree-before.md` against the user's request. Preserve pre-existing staged, unstaged, and untracked work, including unrelated hunks in a target file. Do not reset, stage, or discard user changes to simplify the diff.
 6. If new evidence changes the scope materially, update impact analysis before editing outside the plan.
 
+## Behavioral implementation policy
+
+- Implement the minimum code that satisfies the accepted behavior and constraints. Do not add speculative features, future-proofing layers, or configurability that is not required by the task.
+- Prefer an existing direct pattern over a new abstraction when the abstraction has only one current use and no concrete boundary/variation/testing need.
+- Add defensive/error handling for plausible states under established contracts. Do not create branches for states that are provably impossible solely to appear defensive.
+- Make surgical changes: do not refactor, rename, reformat, comment-clean, or delete unrelated existing code. If unrelated dead/problematic code is discovered, report it instead of folding it into the patch.
+- Clean up imports, variables, helpers, tests, or files made obsolete by **this change**; do not treat pre-existing cleanup as implicitly authorized.
+- Match established project style even when another style would also be reasonable.
+- Every changed line should be explainable by the request, an acceptance criterion, a regression test, a compatibility/security requirement, or cleanup made necessary by this patch. If it cannot be traced to one of those, remove it or explicitly re-plan the scope.
+- If implementation grows substantially beyond the planned shape, revisit the plan before continuing rather than normalizing the extra complexity after the fact.
+
 ## Architecture and clean-code rules
 
 For greenfield/new modules, follow the effective architecture policy:
