@@ -237,6 +237,18 @@ It contains:
 
 Core Clean Code defaults include intent-revealing naming, focused functions/modules, shallow control flow where practical, thin transport handlers, explicit errors/dependencies, no hidden mutable global state, no speculative abstraction, behavior-focused tests, and simple code over clever code.
 
+## Behavioral coding policy
+
+The kit uses one shared behavioral policy across Codex, Claude, and Antigravity instead of maintaining a separate Claude-only rule set. `CLAUDE.md` stays intentionally thin and delegates shared behavior to `AGENTS.md`; the same policy is also embedded in the plan/build/verify/vibe skills so global-skill installs retain it.
+
+The policy has four core behaviors:
+
+- **Think before coding:** surface assumptions and tradeoffs; ask only when ambiguity materially changes behavior, contracts, data, security, compatibility, destructive effects, or scope. Minor reversible ambiguity can proceed with an explicit conservative assumption.
+- **Simplicity first:** write the minimum code needed for the accepted behavior. Avoid speculative features, single-use abstractions, and unrequested configurability. Defensive branches should correspond to plausible states under established contracts, not invented impossible scenarios.
+- **Surgical changes:** do not refactor, rename, reformat, comment-clean, or delete unrelated existing code. Cleanup is limited to artifacts made obsolete by the current patch. Every changed line should trace to the request, an acceptance criterion, required regression/compatibility/security evidence, or cleanup caused by the change.
+- **Goal-driven execution:** turn non-trivial work into observable goals and map steps to verification evidence. Bugs prefer reproduce -> root cause -> regression -> fix -> verify; refactors establish behavior before and after.
+
+These rules bias toward cautious, reviewable diffs without forcing unnecessary clarification or reducing agent autonomy for low-risk reversible decisions.
 ## Comment and documentation policy
 
 The kit treats comments as maintenance evidence, not narration. Build and review should prefer self-explanatory code and add comments only where they preserve information that the code alone does not make obvious.
