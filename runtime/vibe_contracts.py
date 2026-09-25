@@ -184,7 +184,7 @@ def validate_security_semantics(data: Dict[str, object]) -> None:
     classification = data.get("classification")
     if classification not in {"security-sensitive", "not-security-sensitive"}:
         raise ContractError("Security classification must be security-sensitive or not-security-sensitive.")
-    for key in ("surfaces", "trust_boundaries", "limitations"):
+    for key in ("surfaces", "trust_boundaries", "abuse_cases", "controls_reviewed", "limitations"):
         value = data.get(key)
         if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
             raise ContractError("security-evidence.{} must be an array of strings.".format(key))
@@ -209,6 +209,24 @@ def validate_security_semantics(data: Dict[str, object]) -> None:
                 evidence_ok = False
             if not evidence_ok:
                 raise ContractError("A passed targeted security check requires evidence.")
+    diff_review = data.get("diff_review")
+    if not isinstance(diff_review, dict):
+        raise ContractError("security-evidence.diff_review must be an object.")
+    if diff_review.get("status") not in {"passed", "failed", "unverified", "not-applicable"}:
+        raise ContractError("security-evidence.diff_review.status is invalid.")
+    if diff_review.get("status") == "passed":
+        evidence = diff_review.get("evidence")
+        if isinstance(evidence, str):
+            evidence_ok = bool(evidence.strip())
+        elif isinstance(evidence, list):
+            evidence_ok = bool(evidence) and all(
+                isinstance(value, str) and value.strip() for value in evidence
+            )
+        else:
+            evidence_ok = False
+        if not evidence_ok:
+            raise ContractError("A passed security diff review requires evidence.")
+
     for key in ("scanner", "dependency_vulnerability"):
         item = data.get(key)
         if not isinstance(item, dict):
