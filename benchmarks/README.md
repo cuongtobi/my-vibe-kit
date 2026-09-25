@@ -26,6 +26,17 @@ JSON output:
 python benchmarks/benchmark_runtime.py --json
 ```
 
+Compare against a previous result without turning timing noise into a hard gate:
+
+```bash
+python benchmarks/benchmark_runtime.py \
+  --baseline benchmark-baseline.json \
+  --comparison-output benchmark-comparison.json \
+  --json
+```
+
+The result records Python/platform/GitHub-run metadata plus per-size timing deltas when a compatible baseline is available.
+
 Quick smoke:
 
 ```bash
@@ -37,6 +48,7 @@ The benchmark is intended for before/after comparisons on the same machine and P
 GitHub Actions:
 
 - normal CI runs the 100-file smoke case;
-- the manually dispatched `performance-benchmark` workflow runs 1k/5k/20k on Ubuntu/Python 3.11 and uploads `benchmark-results.json`.
+- the `performance-benchmark` workflow runs on manual dispatch and published releases for 1k/5k/20k on Ubuntu/Python 3.11;
+- it restores the most recent same-runner cache as a diagnostic baseline, emits `benchmark-comparison.json`, saves the current result as the next baseline, and uploads SHA-named result/comparison artifacts for 90 days.
 
-Do not turn environment-specific absolute times into hard cross-platform pass/fail thresholds. Use regressions against a controlled baseline instead.
+Do not turn environment-specific absolute times into hard cross-platform pass/fail thresholds. Use the retained history to investigate regressions against a controlled runner, then reproduce suspicious deltas before treating them as real regressions.
