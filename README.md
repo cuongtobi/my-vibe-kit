@@ -304,11 +304,11 @@ Planning records the affected trust boundary, controlled/untrusted inputs, prote
 
 For example, refresh-token/session work reviews token rotation/expiry, revocation, replay risk, cookie flags, session fixation, authorization boundaries, and sensitive token logging. File-upload work reviews size limits, MIME/extension handling, path traversal, filename sanitization, overwrite behavior, execution risk, storage boundaries, and authorization.
 
-For security-sensitive tasks, normal lint/type/test/build success or runtime `PASS_VERIFIED` is not enough to call the task complete. Verification records a dedicated **Security evidence** section with the security diff review, targeted tests/checks, scanner results when available, dependency-vulnerability evidence when relevant, and explicit limitations. Missing scanners are reported rather than silently treated as success.
+For security-sensitive tasks, normal lint/type/test/build success or runtime `PASS_VERIFIED` is not enough to call the task complete. Verification records a dedicated **Security evidence** section with affected surfaces, trust boundaries, abuse cases, controls reviewed, a security-focused final-diff review, targeted tests/checks, scanner results when available, dependency-vulnerability evidence when relevant, and explicit limitations. The deterministic completion gate requires non-empty abuse/control evidence plus a passed diff review with evidence; missing scanners are reported explicitly rather than silently treated as success.
 
 ## Runtime contracts and workflow completion
 
-Runtime artifacts now carry an explicit `artifact_type` and `schema_version`. The stdlib-only validator uses `schemas/contracts-v1.json` as the checked-in contract manifest for `project-map.json`, `dependency-map.json`, `relevant-context.json`, `verification.json`, task records, dependency diffs, security candidates, structured evidence, and completion status. Config versions 1-3 remain readable, but invalid field types or unsupported versions are rejected explicitly. Contract-invalid cached project/dependency artifacts are rebuilt instead of trusted.
+Runtime artifacts now carry an explicit `artifact_type` and `schema_version`. The stdlib-only validator uses `schemas/contracts-v1.json` as the checked-in contract manifest for `project-map.json`, `dependency-map.json`, `relevant-context.json`, `verification.json`, task records, dependency diffs, security candidates, structured evidence, and completion status. Config versions 1-3 remain readable, but invalid nested retrieval/index/dependency/verification/task-retention/architecture values and unsupported versions are rejected explicitly with contract errors. Contract-invalid cached project/dependency artifacts are rebuilt instead of trusted.
 
 `PASS_VERIFIED` remains backward-compatible and means only that configured runtime checks passed against a stable source fingerprint and no forbidden dependency-cycle condition failed. Final task completion is a separate deterministic gate:
 
@@ -384,7 +384,7 @@ It is a performance cache, not project truth and not verification evidence.
 
 `file-index.json` also stores a bounded source-search index: discovered symbols plus high-signal Unicode identifier/content terms for each source file. Tokens are Unicode-aware and keep both native and accent-folded comparison forms; common Vietnamese software phrases can expand to code-facing aliases such as login/session/expiry, and projects can add their own aliases in config. The index is refreshed only for changed files during an incremental update. `content-hashes.json` separately caches verification content hashes so repeated source fingerprints reuse unchanged hashes instead of reopening every indexed file.
 
-For cache invalidation, the runtime uses Git HEAD, dirty/untracked file hashes, and the runtime configuration hash. Git paths use NUL-delimited output so Unicode, whitespace, and rename paths remain intact. Git repositories index tracked files and non-ignored untracked files, subject to the kit's directory exclusions and file limit. Ignored generated files are excluded from the graph unless already tracked; outside Git, the filesystem scanner remains available and refreshes fully.
+For cache invalidation, the runtime uses Git HEAD, dirty/untracked file hashes, the runtime configuration hash, and a deterministic **kit toolchain fingerprint** over managed runtime/adapters/schemas. Upgrading the kit therefore invalidates stale context/dependency caches even when project source is unchanged. The verification source fingerprint also includes the toolchain fingerprint, so evidence created under an older runtime cannot remain current after an upgrade. Git paths use NUL-delimited output so Unicode, whitespace, and rename paths remain intact. Git repositories index tracked files and non-ignored untracked files, subject to the kit's directory exclusions and file limit. Ignored generated files are excluded from the graph unless already tracked; outside Git, the filesystem scanner remains available and refreshes fully.
 
 `index.use_git_delta=false` disables incremental refresh: unchanged valid caches can still be reused, but changed repositories rebuild fully. `impact` refreshes through this same cache engine before calculating consumers and affected tests. Cycle detection uses an iterative algorithm so long dependency chains do not exhaust Python's recursion limit.
 
@@ -403,7 +403,7 @@ INCREMENTAL_REFRESH
 
 FULL_REBUILD
     first run, missing/invalid cache, unavailable Git delta,
-    incompatible cache schema/scanner, or forced rebuild
+    incompatible cache schema/scanner, changed kit toolchain, or forced rebuild
 ```
 
 A cache hit saves work. It does **not** mean the code passed tests.
@@ -1171,13 +1171,13 @@ Apply managed updates:
 python install.py --target /path/to/project --agents all --force
 ```
 
-`--force` refreshes managed runtime/skills/integration files but intentionally preserves project-owned:
+`--force` refreshes managed runtime/skills/integration files, reconciles kit-owned subtrees against the current manifest, and removes obsolete managed files while intentionally preserving project-owned:
 
 - `AGENTS.md`
 - `CLAUDE.md`
 - `.vibe/config.json`
 
-When upgrading an older installation, compare the project config with `vibe.config.example.json`. The runtime supplies safe defaults for missing v3 keys, but explicitly merging the new context/index/task settings is recommended.
+When upgrading an older installation, compare the project config with `vibe.config.example.json`. The runtime supplies safe defaults for missing v3 keys, but explicitly merging the new context/index/task settings is recommended. Install manifest schema v2 records the exact managed-file set so future upgrades can safely remove renamed/deleted kit files without touching unrelated custom skills.
 
 ## Safe installation behavior
 
@@ -1189,7 +1189,11 @@ The installer:
 - reports managed-file conflicts,
 - supports `--dry-run`, including Claude bundles without creating directories or overwriting ZIPs,
 - preserves conflicting `install-manifest.json` unless `--force` is supplied,
+- records manifest schema v2 with exact managed files and prunes obsolete files only inside kit-owned/previously-owned locations during `--force`,
+- preserves unrelated custom skill directories,
 - excludes `__pycache__`, `.pyc`, and `.pyo` from installed files and bundles,
+- rebuilds Claude upload ZIPs when requested so an existing archive cannot remain silently stale,
+- makes `plan`/`build`/`verify` Claude ZIPs self-contained by embedding the shared frontend policy,
 - only refreshes kit-managed files with `--force`.
 
 Review the target repository diff before committing.
