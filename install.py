@@ -152,7 +152,24 @@ def _active_managed_prefixes(agents: Sequence[str]) -> List[str]:
 
 
 def _under_active_prefix(relative: str, prefixes: Sequence[str]) -> bool:
-    return any(relative == prefix.rstrip("/") or relative.startswith(prefix) for prefix in prefixes)
+    path = Path(relative)
+    if path.is_absolute() or ".." in path.parts:
+        return False
+    normalized = path.as_posix()
+    return any(normalized == prefix.rstrip("/") or normalized.startswith(prefix) for prefix in prefixes)
+
+
+def _safe_managed_target(target: Path, relative: str) -> Path | None:
+    path = Path(relative)
+    if path.is_absolute() or ".." in path.parts:
+        return None
+    base = target.resolve()
+    candidate = (target / path).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        return None
+    return candidate
 
 
 def prune_obsolete_managed_files(
@@ -194,8 +211,8 @@ def prune_obsolete_managed_files(
                 candidates.add(path.relative_to(target).as_posix())
 
     for relative in sorted(candidates - current):
-        path = target / relative
-        if not path.exists() and not path.is_symlink():
+        path = _safe_managed_target(target, relative)
+        if path is None or (not path.exists() and not path.is_symlink()):
             continue
         status = "would-remove" if dry_run else "removed"
         if not dry_run:
