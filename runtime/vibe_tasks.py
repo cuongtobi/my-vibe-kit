@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from vibe_contracts import artifact_is_valid, stamp_artifact
+from vibe_contracts import ContractError, artifact_is_valid, stamp_artifact
 
 
 def utc_now() -> str:
@@ -77,8 +77,30 @@ def start_task(root: Path, mode: str, request: str) -> Dict[str, object]:
 
 
 def current_task(root: Path) -> Optional[Dict[str, object]]:
-    data = json_load(runtime_dir(root) / "current-task.json", None)
-    return data if artifact_is_valid("task", data) else None
+    path = runtime_dir(root) / "current-task.json"
+    data = json_load(path, None)
+    if artifact_is_valid("task", data):
+        return data
+    if not isinstance(data, dict):
+        return None
+    # Pre-contract task records are safe to migrate only when they have no
+    # version/type markers and still satisfy the current task shape.
+    if "artifact_type" in data or "schema_version" in data:
+        return None
+    required = ("id", "mode", "request", "created_at", "path")
+    if not all(isinstance(data.get(key), str) and str(data.get(key)).strip() for key in required):
+        return None
+    if data.get("mode") not in {"feature", "change", "bug_fix", "refactor", "hotfix"}:
+        return None
+    try:
+        migrated = stamp_artifact("task", data)
+    except ContractError:
+        return None
+    json_dump(path, migrated)
+    task_path = root / str(migrated["path"])
+    if task_path.is_dir():
+        json_dump(task_path / "task.json", migrated)
+    return migrated
 
 
 def current_task_path(root: Path) -> Optional[Path]:
