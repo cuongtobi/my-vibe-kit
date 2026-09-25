@@ -9,6 +9,13 @@ description: Orchestrates an end-to-end repository change through planning, impl
 
 Complete one software change with controlled scope and runtime evidence.
 
+## Behavioral orchestration
+
+- Convert the request into observable goals before implementation; a non-trivial step should have a corresponding check or evidence source.
+- Surface materially consequential assumptions early. Do not interrupt autonomous execution for minor, reversible ambiguity that can be handled with a stated conservative assumption.
+- Prefer the simplest scoped solution that satisfies the acceptance criteria; complexity must be justified by an actual constraint, boundary, or verified need.
+- Keep retries evidence-driven: diagnose -> change -> re-check. Do not churn through rewrites without new evidence.
+
 ## Procedure
 
 1. Read the repository's durable instructions, especially `AGENTS.md`.
