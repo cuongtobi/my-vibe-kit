@@ -45,11 +45,21 @@ def record_evidence(root: Path, kind: str, payload: object) -> Dict[str, object]
         raise ContractError("Evidence payload must be a JSON object.")
 
     artifact_kind, filename = EVIDENCE_FILES[kind]
+    verification_path = root / ".vibe" / "runtime" / "verification.json"
+    verification = _read_json(verification_path)
+    try:
+        verification = validate_artifact("verification", verification)
+    except ContractError as exc:
+        raise ContractError("Current valid verification evidence is required before recording task evidence.") from exc
+    if verification.get("task_id") != task.get("id"):
+        raise ContractError("Verification evidence does not belong to the current task.")
+
     data = dict(payload)
     supplied_task = data.get("task_id")
     if supplied_task not in (None, task.get("id")):
         raise ContractError("Evidence task_id does not match the current task.")
     data["task_id"] = task.get("id")
+    data["source_fingerprint"] = verification.get("source_fingerprint")
     data = stamp_artifact(artifact_kind, data)
     if kind == "acceptance":
         validate_acceptance_semantics(data)
@@ -106,7 +116,12 @@ def evaluate_completion(
 
     acceptance = load_evidence(root, "acceptance")
     acceptance_ok = False
-    if isinstance(acceptance, dict) and acceptance.get("task_id") == task_id:
+    report_fingerprint = report.get("source_fingerprint") if isinstance(report, dict) else None
+    if (
+        isinstance(acceptance, dict)
+        and acceptance.get("task_id") == task_id
+        and acceptance.get("source_fingerprint") == report_fingerprint
+    ):
         criteria = acceptance.get("criteria") or []
         acceptance_ok = bool(criteria) and all(
             isinstance(item, dict) and item.get("result") == "met" for item in criteria
@@ -123,7 +138,11 @@ def evaluate_completion(
 
     security = load_evidence(root, "security")
     security_ok = False
-    if isinstance(security, dict) and security.get("task_id") == task_id:
+    if (
+        isinstance(security, dict)
+        and security.get("task_id") == task_id
+        and security.get("source_fingerprint") == report_fingerprint
+    ):
         classification = security.get("classification")
         if classification == "not-security-sensitive":
             override = str(security.get("candidate_override_reason") or "").strip()
