@@ -106,7 +106,11 @@ class InstallerTests(unittest.TestCase):
             manifest = json.loads(
                 (target / ".vibe/install-manifest.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(manifest["kit_version"], "0.9.1")
+            self.assertEqual(manifest["schema_version"], 2)
+            self.assertEqual(manifest["kit_version"], "0.9.2")
+            self.assertIn(".vibe/tools/vibe.py", manifest["managed_files"])
+            self.assertIn(".agents/skills/vibe/SKILL.md", manifest["managed_files"])
+            self.assertIn(".claude/skills/vibe/SKILL.md", manifest["managed_files"])
 
     def test_laravel_install_detects_stack_and_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -165,6 +169,55 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertTrue((target / ".agents/skills/plan/SKILL.md").exists())
 
+    def test_force_upgrade_prunes_obsolete_kit_files_but_preserves_custom_skills(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "project"
+            target.mkdir()
+            first = self.run_installer(target)
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+
+            obsolete_runtime = target / ".vibe/tools/obsolete_runtime.py"
+            obsolete_runtime.write_text("old = True\n", encoding="utf-8")
+            obsolete_skill = target / ".agents/skills/vibe/obsolete.md"
+            obsolete_skill.write_text("old\n", encoding="utf-8")
+            custom_skill = target / ".agents/skills/custom/SKILL.md"
+            custom_skill.parent.mkdir(parents=True)
+            custom_skill.write_text("# Custom\n", encoding="utf-8")
+
+            # Simulate the pre-v2 manifest used by 0.9.1 installations.
+            manifest_path = target / ".vibe/install-manifest.json"
+            legacy_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            legacy_manifest.pop("schema_version", None)
+            legacy_manifest.pop("managed_files", None)
+            legacy_manifest["kit_version"] = "0.9.1"
+            manifest_path.write_text(json.dumps(legacy_manifest), encoding="utf-8")
+
+            upgraded = self.run_installer(target, "--force")
+            self.assertEqual(upgraded.returncode, 0, upgraded.stdout + upgraded.stderr)
+            self.assertFalse(obsolete_runtime.exists())
+            self.assertFalse(obsolete_skill.exists())
+            self.assertTrue(custom_skill.exists())
+            manifest = json.loads((target / ".vibe/install-manifest.json").read_text(encoding="utf-8"))
+            self.assertNotIn(".vibe/tools/obsolete_runtime.py", manifest["managed_files"])
+
+    def test_force_upgrade_rejects_manifest_path_traversal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "project"
+            target.mkdir()
+            first = self.run_installer(target)
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+
+            protected = target / "do-not-delete.txt"
+            protected.write_text("keep\n", encoding="utf-8")
+            manifest_path = target / ".vibe/install-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["managed_files"].append(".vibe/tools/../../do-not-delete.txt")
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            upgraded = self.run_installer(target, "--force")
+            self.assertEqual(upgraded.returncode, 0, upgraded.stdout + upgraded.stderr)
+            self.assertEqual(protected.read_text(encoding="utf-8"), "keep\n")
+
     def test_dry_run_does_not_create_project_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "project"
@@ -174,7 +227,7 @@ class InstallerTests(unittest.TestCase):
             self.assertFalse((target / ".vibe").exists())
             self.assertFalse((target / ".agents").exists())
 
-    def test_claude_bundle_contains_skill_definition(self):
+    def test_claude_bundles_are_self_contained_and_rebuilt_when_stale(self):
         result = subprocess.run(
             [sys.executable, str(INSTALLER), "--bundle-claude", "--force"],
             cwd=str(ROOT),
@@ -184,10 +237,37 @@ class InstallerTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        archive = ROOT / "dist" / "claude-skills" / "vibe.zip"
-        self.assertTrue(archive.exists())
-        with zipfile.ZipFile(str(archive), "r") as bundle:
+        out_dir = ROOT / "dist" / "claude-skills"
+        vibe_archive = out_dir / "vibe.zip"
+        self.assertTrue(vibe_archive.exists())
+        with zipfile.ZipFile(str(vibe_archive), "r") as bundle:
             self.assertIn("SKILL.md", bundle.namelist())
+            self.assertIn("reference/frontend-policy.md", bundle.namelist())
+
+        for name in ("plan", "build", "verify"):
+            archive = out_dir / (name + ".zip")
+            self.assertTrue(archive.exists())
+            with zipfile.ZipFile(str(archive), "r") as bundle:
+                self.assertIn("SKILL.md", bundle.namelist())
+                self.assertIn("reference/frontend-policy.md", bundle.namelist())
+                skill = bundle.read("SKILL.md").decode("utf-8")
+                self.assertIn("reference/frontend-policy.md", skill)
+                self.assertNotIn("../vibe/reference/frontend-policy.md", skill)
+
+        # Generated bundles must not remain silently stale just because a ZIP exists.
+        stale = out_dir / "plan.zip"
+        stale.write_bytes(b"stale")
+        rebuilt = subprocess.run(
+            [sys.executable, str(INSTALLER), "--bundle-claude"],
+            cwd=str(ROOT),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(rebuilt.returncode, 0, rebuilt.stdout + rebuilt.stderr)
+        with zipfile.ZipFile(str(stale), "r") as bundle:
+            self.assertIn("reference/frontend-policy.md", bundle.namelist())
 
 if __name__ == "__main__":
     unittest.main()

@@ -374,6 +374,39 @@ def effective_adapter(
     }
 
 
+def _target_package_roots(root: Path, target_files: Optional[Sequence[str]]) -> List[Path]:
+    resolved_root = root.resolve()
+    roots: List[Path] = []
+    for raw in target_files or []:
+        candidate = (root / str(raw)).resolve()
+        current = candidate.parent if candidate.suffix else candidate
+        while current == resolved_root or resolved_root in current.parents:
+            if (current / "package.json").is_file() and current not in roots:
+                roots.append(current)
+            if current == resolved_root:
+                break
+            current = current.parent
+    if resolved_root not in roots:
+        roots.append(resolved_root)
+    return roots
+
+
+def _frontend_frameworks_from_package(path: Path) -> List[str]:
+    deps = _deps(
+        _json(path / "package.json"),
+        ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"],
+    )
+    mapping = (
+        ("next", "nextjs"),
+        ("nuxt", "nuxt"),
+        ("@sveltejs/kit", "sveltekit"),
+        ("react", "react"),
+        ("vue", "vue"),
+        ("svelte", "svelte"),
+    )
+    return [framework for dependency, framework in mapping if dependency in deps]
+
+
 def frontend_task_context(
     root: Path,
     adapter: Dict[str, object],
@@ -404,7 +437,17 @@ def frontend_task_context(
     ]
     if not framework_ids:
         framework_ids = [str(item) for item in (stack.get("frameworks") or [])]
+    resolved_root = root.resolve()
+    package_roots = _target_package_roots(root, target_files)
+    local_frontend_frameworks: List[str] = []
+    for package_root in package_roots:
+        for framework in _frontend_frameworks_from_package(package_root):
+            if framework not in local_frontend_frameworks:
+                local_frontend_frameworks.append(framework)
     frontend_frameworks = [item for item in framework_ids if item in FRONTEND_FRAMEWORK_IDS]
+    for framework in local_frontend_frameworks:
+        if framework not in frontend_frameworks:
+            frontend_frameworks.append(framework)
     adapter_frontend = any(
         isinstance(item, dict) and item.get("frontend") is True
         for item in (adapter.get("frameworks") or [])
@@ -432,23 +475,34 @@ def frontend_task_context(
         re.search(pattern, folded) for pattern in FRONTEND_REDESIGN_PATTERNS
     ) else "refine"
 
-    package_deps = _deps(
-        _json(root / "package.json"),
-        ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"],
-    )
     browser_tooling = []
-    if "playwright" in package_deps or "@playwright/test" in package_deps or any(
-        (root / name).exists()
-        for name in ("playwright.config.js", "playwright.config.ts", "playwright.config.mjs")
-    ):
-        browser_tooling.append("playwright")
-    if "cypress" in package_deps or any(
-        (root / name).exists()
-        for name in ("cypress.config.js", "cypress.config.ts", "cypress.config.mjs")
-    ):
-        browser_tooling.append("cypress")
+    browser_tooling_details = []
+    config_suffixes = ("js", "ts", "mjs", "cjs", "mts", "cts")
+    for package_root in package_roots:
+        package_deps = _deps(
+            _json(package_root / "package.json"),
+            ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"],
+        )
+        relative_root = package_root.relative_to(resolved_root).as_posix() if package_root != resolved_root else "."
+        playwright = "playwright" in package_deps or "@playwright/test" in package_deps or any(
+            (package_root / ("playwright.config." + suffix)).exists() for suffix in config_suffixes
+        )
+        cypress = "cypress" in package_deps or any(
+            (package_root / ("cypress.config." + suffix)).exists() for suffix in config_suffixes
+        )
+        for tool, present in (("playwright", playwright), ("cypress", cypress)):
+            if not present:
+                continue
+            if tool not in browser_tooling:
+                browser_tooling.append(tool)
+            detail = {"tool": tool, "package_root": relative_root}
+            if detail not in browser_tooling_details:
+                browser_tooling_details.append(detail)
 
-    design_path = root / "DESIGN.md"
+    design_path = next(
+        (package_root / "DESIGN.md" for package_root in package_roots if (package_root / "DESIGN.md").is_file()),
+        resolved_root / "DESIGN.md",
+    )
     return {
         "enabled": enabled,
         "surface": surface if enabled else None,
@@ -458,9 +512,13 @@ def frontend_task_context(
             "request": request_signal,
             "targets": frontend_targets,
             "frontend_capable_stack": frontend_capable,
+            "package_roots": [
+                package_root.relative_to(resolved_root).as_posix() if package_root != resolved_root else "."
+                for package_root in package_roots
+            ],
         },
         "design_context": {
-            "path": "DESIGN.md" if design_path.is_file() else None,
+            "path": design_path.relative_to(resolved_root).as_posix() if design_path.is_file() else None,
             "mode": "declared" if design_path.is_file() else "infer-existing-ui",
             "required": False,
         },
@@ -476,6 +534,7 @@ def frontend_task_context(
             "inspection_rounds": 1,
             "confirmation_rounds": 1,
             "browser_tooling": browser_tooling,
+            "browser_tooling_details": browser_tooling_details,
             "install_new_tooling": False,
         } if enabled else {},
         "authority": "advisory-task-classification",

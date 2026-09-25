@@ -150,14 +150,30 @@ def evaluate_completion(
         elif classification == "security-sensitive":
             surfaces = security.get("surfaces") or []
             trust = security.get("trust_boundaries") or []
+            abuse_cases = security.get("abuse_cases") or []
+            controls = security.get("controls_reviewed") or []
             checks = security.get("targeted_checks") or []
+            diff_review = security.get("diff_review") or {}
+            diff_evidence = diff_review.get("evidence")
+            if isinstance(diff_evidence, str):
+                diff_evidence_ok = bool(diff_evidence.strip())
+            elif isinstance(diff_evidence, list):
+                diff_evidence_ok = bool(diff_evidence) and all(
+                    isinstance(value, str) and value.strip() for value in diff_evidence
+                )
+            else:
+                diff_evidence_ok = False
             scanner = security.get("scanner") or {}
             dependency = security.get("dependency_vulnerability") or {}
             security_ok = (
                 bool(surfaces)
                 and bool(trust)
+                and bool(abuse_cases)
+                and bool(controls)
                 and bool(checks)
                 and all(isinstance(item, dict) and item.get("result") == "passed" for item in checks)
+                and diff_review.get("status") == "passed"
+                and diff_evidence_ok
                 and scanner.get("status") not in {"failed", "unverified", None}
                 and dependency.get("status") not in {"failed", "unverified", None}
             )

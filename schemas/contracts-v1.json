@@ -115,7 +115,7 @@
       }
     },
     "security-evidence": {
-      "version": 1,
+      "version": 2,
       "required": {
         "artifact_type": "string",
         "schema_version": "integer",
@@ -127,7 +127,10 @@
         "scanner": "object",
         "dependency_vulnerability": "object",
         "limitations": "array",
-        "source_fingerprint": "string"
+        "source_fingerprint": "string",
+        "abuse_cases": "array",
+        "controls_reviewed": "array",
+        "diff_review": "object"
       }
     },
     "completion": {

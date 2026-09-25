@@ -43,6 +43,7 @@ from vibe_state import (
     load_cache,
     repository_files,
     state_summary as persistent_state_summary,
+    toolchain_fingerprint,
     write_cache,
 )
 
@@ -1630,6 +1631,10 @@ def verification_fingerprint(root: Path) -> str:
     extra_files = [control.relative_to(root).as_posix()] if control.is_file() else []
     hashes = content_hash_index(root, relative_files, extra_files=extra_files)
     digest = hashlib.sha256()
+    toolchain_hash = toolchain_fingerprint(root)
+    digest.update(b"toolchain\0")
+    digest.update((toolchain_hash or "unavailable").encode("ascii", errors="replace"))
+    digest.update(b"\0")
     for relative, content_hash in sorted(hashes.items()):
         digest.update(relative.encode("utf-8") + b"\0")
         try:

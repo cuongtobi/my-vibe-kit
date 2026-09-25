@@ -147,10 +147,67 @@ def validate_config(data: object) -> Dict[str, object]:
             if not isinstance(command, list) or not command or not all(isinstance(item, str) for item in command):
                 raise ContractError("Each verification command must be a non-empty array of strings.")
 
+    retrieval = context.get("retrieval") if isinstance(context, dict) else None
+    if isinstance(retrieval, dict):
+        for key in ("min_index_score", "fallback_max_scan_files", "fallback_read_bytes"):
+            if key in retrieval and (not isinstance(retrieval[key], int) or isinstance(retrieval[key], bool) or retrieval[key] < 0):
+                raise ContractError("config.context.retrieval.{} must be a non-negative integer.".format(key))
+        aliases = retrieval.get("query_aliases")
+        if aliases is not None:
+            if not isinstance(aliases, dict):
+                raise ContractError("config.context.retrieval.query_aliases must be an object.")
+            for key, alias_values in aliases.items():
+                if not isinstance(key, str) or not isinstance(alias_values, (str, list)):
+                    raise ContractError("config.context.retrieval.query_aliases entries must be string or string-array values.")
+                if isinstance(alias_values, list) and not all(isinstance(item, str) for item in alias_values):
+                    raise ContractError("config.context.retrieval.query_aliases arrays must contain strings.")
+
+    index = value.get("index") or {}
+    if isinstance(index, dict):
+        if "backend" in index and index["backend"] != "json":
+            raise ContractError("config.index.backend is unsupported.")
+        for key in ("use_git_delta", "full_rebuild_on_schema_change"):
+            if key in index and not isinstance(index[key], bool):
+                raise ContractError("config.index.{} must be boolean.".format(key))
+
+    dependency = value.get("dependency") or {}
+    if isinstance(dependency, dict) and "fail_on_new_cycles" in dependency and not isinstance(dependency["fail_on_new_cycles"], bool):
+        raise ContractError("config.dependency.fail_on_new_cycles must be boolean.")
+
+    if isinstance(verification, dict) and "require_commands" in verification and not isinstance(verification["require_commands"], bool):
+        raise ContractError("config.verification.require_commands must be boolean.")
+
+    tasks = value.get("tasks") or {}
+    if isinstance(tasks, dict):
+        if "auto_load_history" in tasks and not isinstance(tasks["auto_load_history"], bool):
+            raise ContractError("config.tasks.auto_load_history must be boolean.")
+        retention = tasks.get("retention")
+        if retention is not None and not isinstance(retention, dict):
+            raise ContractError("config.tasks.retention must be an object.")
+        if isinstance(retention, dict):
+            if "policy" in retention and retention["policy"] not in {"bounded", "keep-all"}:
+                raise ContractError("config.tasks.retention.policy is unsupported.")
+            if "cleanup" in retention and retention["cleanup"] != "manual":
+                raise ContractError("config.tasks.retention.cleanup is unsupported.")
+            for key in ("max_tasks", "max_age_days"):
+                if key in retention and (not isinstance(retention[key], int) or isinstance(retention[key], bool) or retention[key] < 0):
+                    raise ContractError("config.tasks.retention.{} must be a non-negative integer.".format(key))
+
     architecture = value.get("architecture") or {}
-    if isinstance(architecture, dict) and "profile" in architecture:
-        if architecture["profile"] not in {"auto", "simple", "standard", "strict"}:
+    if isinstance(architecture, dict):
+        if "profile" in architecture and architecture["profile"] not in {"auto", "simple", "standard", "strict"}:
             raise ContractError("config.architecture.profile is unsupported.")
+        if "default_profile" in architecture and architecture["default_profile"] not in {"simple", "standard", "strict"}:
+            raise ContractError("config.architecture.default_profile is unsupported.")
+        if "allow_auto_strict" in architecture and not isinstance(architecture["allow_auto_strict"], bool):
+            raise ContractError("config.architecture.allow_auto_strict must be boolean.")
+        thresholds = architecture.get("strict_thresholds")
+        if thresholds is not None and not isinstance(thresholds, dict):
+            raise ContractError("config.architecture.strict_thresholds must be an object.")
+        if isinstance(thresholds, dict):
+            for key in ("source_files", "feature_roots"):
+                if key in thresholds and (not isinstance(thresholds[key], int) or isinstance(thresholds[key], bool) or thresholds[key] < 0):
+                    raise ContractError("config.architecture.strict_thresholds.{} must be a non-negative integer.".format(key))
 
     return value
 
@@ -184,7 +241,7 @@ def validate_security_semantics(data: Dict[str, object]) -> None:
     classification = data.get("classification")
     if classification not in {"security-sensitive", "not-security-sensitive"}:
         raise ContractError("Security classification must be security-sensitive or not-security-sensitive.")
-    for key in ("surfaces", "trust_boundaries", "limitations"):
+    for key in ("surfaces", "trust_boundaries", "abuse_cases", "controls_reviewed", "limitations"):
         value = data.get(key)
         if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
             raise ContractError("security-evidence.{} must be an array of strings.".format(key))
@@ -209,11 +266,46 @@ def validate_security_semantics(data: Dict[str, object]) -> None:
                 evidence_ok = False
             if not evidence_ok:
                 raise ContractError("A passed targeted security check requires evidence.")
+    diff_review = data.get("diff_review")
+    if not isinstance(diff_review, dict):
+        raise ContractError("security-evidence.diff_review must be an object.")
+    if diff_review.get("status") not in {"passed", "failed", "unverified", "not-applicable"}:
+        raise ContractError("security-evidence.diff_review.status is invalid.")
+    if diff_review.get("status") == "passed":
+        evidence = diff_review.get("evidence")
+        if isinstance(evidence, str):
+            evidence_ok = bool(evidence.strip())
+        elif isinstance(evidence, list):
+            evidence_ok = bool(evidence) and all(
+                isinstance(value, str) and value.strip() for value in evidence
+            )
+        else:
+            evidence_ok = False
+        if not evidence_ok:
+            raise ContractError("A passed security diff review requires evidence.")
+
     for key in ("scanner", "dependency_vulnerability"):
         item = data.get(key)
         if not isinstance(item, dict):
             raise ContractError("security-evidence.{} must be an object.".format(key))
-        if item.get("status") not in {
+        status = item.get("status")
+        if status not in {
             "passed", "failed", "unverified", "not-available", "not-configured", "not-applicable"
         }:
             raise ContractError("security-evidence.{}.status is invalid.".format(key))
+        if status in {"not-available", "not-configured", "not-applicable"}:
+            reason = item.get("reason")
+            if not isinstance(reason, str) or not reason.strip():
+                raise ContractError("security-evidence.{} requires a reason for status {}.".format(key, status))
+        if status == "passed":
+            evidence = item.get("evidence")
+            if isinstance(evidence, str):
+                evidence_ok = bool(evidence.strip())
+            elif isinstance(evidence, list):
+                evidence_ok = bool(evidence) and all(
+                    isinstance(value, str) and value.strip() for value in evidence
+                )
+            else:
+                evidence_ok = False
+            if not evidence_ok:
+                raise ContractError("security-evidence.{} requires evidence when passed.".format(key))

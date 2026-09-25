@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 STATE_SCHEMA_VERSION = 1
-SCANNER_VERSION = "incremental-v7"
+SCANNER_VERSION = "incremental-v8"
 
 CACHE_FILES = {
     "context": "last-context.json",
@@ -30,6 +30,50 @@ IGNORED_STATE_PREFIXES = (
     ".claude/",
 )
 IGNORED_STATE_EXACT = {".vibe/.gitignore"}
+
+
+def _toolchain_roots(root: Path) -> List[Tuple[str, Path]]:
+    installed = root / ".vibe"
+    if (installed / "tools").is_dir():
+        return [
+            ("tools", installed / "tools"),
+            ("adapters", installed / "adapters"),
+            ("schemas", installed / "schemas"),
+        ]
+
+    source_root = Path(__file__).resolve().parent.parent
+    return [
+        ("tools", source_root / "runtime"),
+        ("adapters", source_root / "adapters"),
+        ("schemas", source_root / "schemas"),
+    ]
+
+
+def toolchain_fingerprint(root: Path) -> Optional[str]:
+    """Hash kit-managed runtime inputs so upgrades invalidate stale cache/evidence."""
+    digest = hashlib.sha256()
+    found = False
+    for label, directory in _toolchain_roots(root):
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.rglob("*")):
+            if (
+                not path.is_file()
+                or path.is_symlink()
+                or "__pycache__" in path.parts
+                or path.suffix.lower() in {".pyc", ".pyo"}
+            ):
+                continue
+            try:
+                relative = path.relative_to(directory).as_posix()
+                digest.update((label + "/" + relative).encode("utf-8") + b"\0")
+                with path.open("rb") as handle:
+                    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                        digest.update(chunk)
+            except OSError:
+                continue
+            found = True
+    return digest.hexdigest() if found else None
 
 
 def state_dir(root: Path) -> Path:
@@ -141,6 +185,7 @@ def current_repo_state(root: Path) -> Dict[str, object]:
         "head": head,
         "dirty": dirty,
         "config_sha256": _file_sha256(root, ".vibe/config.json"),
+        "toolchain_sha256": toolchain_fingerprint(root),
     }
     fingerprint = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -150,6 +195,7 @@ def current_repo_state(root: Path) -> Dict[str, object]:
         "head": head,
         "dirty": dirty,
         "config_sha256": payload["config_sha256"],
+        "toolchain_sha256": payload["toolchain_sha256"],
         "fingerprint": fingerprint,
     }
 
@@ -345,6 +391,14 @@ def cache_status(
         return {
             "mode": "FULL_REBUILD",
             "reason": "previous-repository-state-missing",
+            "changed_files": [],
+            "repo_state": current,
+        }
+
+    if previous.get("toolchain_sha256") != current.get("toolchain_sha256"):
+        return {
+            "mode": "FULL_REBUILD",
+            "reason": "toolchain-changed",
             "changed_files": [],
             "repo_state": current,
         }
