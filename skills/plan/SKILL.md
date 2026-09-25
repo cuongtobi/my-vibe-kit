@@ -75,7 +75,10 @@ Understand the smallest safe change before implementation.
    - effective architecture profile/pattern,
    - clean-code and dependency rules from the architecture policy,
    - related tests,
-   - project commands that can verify the change.
+   - project commands that can verify the change,
+   - when `.vibe/runtime/relevant-context.json.frontend.enabled` is true, the frontend surface, intent, design-context source, and acceptance dimensions.
+
+   For frontend tasks, read `../vibe/reference/frontend-policy.md` before finalizing the plan. If `DESIGN.md` exists, treat it as optional durable visual guidance; if it does not, infer the incumbent visual system from bounded relevant code instead of generating a new design document. Map only materially relevant frontend acceptance dimensions to evidence.
 8. Read `.vibe/runtime/security-candidates.json` as advisory runtime evidence, then classify the task as `security-sensitive` or `standard`. Runtime candidates may come from the request, changed/target paths, source symbols/content, and affected framework routes; they never make the final decision. Treat the task as security-sensitive when the request or affected code touches authentication, authorization, sessions, tokens, passwords, file upload/filesystem access, database queries using user-controlled data, user-controlled URLs, HTML rendering, command/process execution, payments, secrets/credentials, or another comparable trust boundary. Classification comes from both the request and discovered impact; a neutral-sounding task is still sensitive if the affected code crosses one of these boundaries.
 
    For a security-sensitive task, record:
@@ -124,6 +127,7 @@ Include:
 - dependencies and consumers,
 - affected tests,
 - compatibility/architecture constraints,
+- frontend surface/intent/design context and relevant UI acceptance dimensions when applicable,
 - security classification; for security-sensitive tasks, security surfaces/trust boundaries, abuse/failure cases, controls to preserve, and required security evidence,
 - ordered implementation steps,
 - verification commands,
@@ -132,7 +136,7 @@ Include:
 - material assumptions and tradeoffs,
 - known uncertainty/evidence gaps.
 
-Assign stable criterion IDs, for example `AC1`, and record each observable expected result with the test, command, or manual check that can demonstrate it. Include relevant failure/compatibility cases. Reuse suitable checks; do not add tests for trivial edits when a direct check suffices. Mark any criterion with no feasible check as an explicit evidence gap. Build and verify use these same IDs.
+Assign stable criterion IDs, for example `AC1`, and record each observable expected result with the test, command, or manual check that can demonstrate it. For frontend work, include the materially relevant dimensions from the frontend policy without forcing irrelevant UI work. Include relevant failure/compatibility cases. Reuse suitable checks; do not add tests for trivial edits when a direct check suffices. Mark any criterion with no feasible check as an explicit evidence gap. Build and verify use these same IDs.
 
 ## Persistent-context rules
 

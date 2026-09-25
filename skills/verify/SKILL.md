@@ -101,6 +101,12 @@ Produce evidence that the change satisfies the request without introducing unexp
    Missing required security evidence keeps the task incomplete even when runtime verification reports `PASS_VERIFIED`.
 11. Evidence must correspond to the final changes. If review leads to further code, test, or configuration edits, rerun the affected checks and runtime verification, then update the acceptance evidence. Documentation-only edits require the relevant document checks.
 
+## Frontend verification
+
+When the current relevant-context or verification report has `frontend.enabled: true`, read `../vibe/reference/frontend-policy.md` and verify the materially relevant UI acceptance dimensions. Prefer existing project-native browser/E2E/story/screenshot tooling; do not install new visual tooling solely for verification. If visual tooling is available, keep visual QA bounded to one inspection round plus at most one confirmation round and batch fixes between them. If runtime visual inspection is unavailable, record that limitation explicitly instead of claiming responsive/visual behavior was verified.
+
+Frontend evidence remains ordinary acceptance evidence: it does not add a new completion status or artifact type. A required frontend criterion that is unmet or unverified keeps the existing acceptance/completion gate incomplete.
+
 ## Structured completion gate
 
 Runtime `PASS_VERIFIED` is only the project-check layer. Before declaring the task complete, materialize machine-readable evidence in `.vibe/runtime/` (this directory is ignored by the source fingerprint) and record it through the runtime:
