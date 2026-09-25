@@ -1,8 +1,20 @@
 {
   "manifest_version": 1,
   "config": {
-    "supported_versions": [1, 2, 3],
-    "object_sections": ["stack", "architecture", "context", "index", "dependency", "verification", "tasks"]
+    "supported_versions": [
+      1,
+      2,
+      3
+    ],
+    "object_sections": [
+      "stack",
+      "architecture",
+      "context",
+      "index",
+      "dependency",
+      "verification",
+      "tasks"
+    ]
   },
   "artifacts": {
     "project-map": {
@@ -98,7 +110,8 @@
         "artifact_type": "string",
         "schema_version": "integer",
         "task_id": "string",
-        "criteria": "array"
+        "criteria": "array",
+        "source_fingerprint": "string"
       }
     },
     "security-evidence": {
@@ -113,7 +126,8 @@
         "targeted_checks": "array",
         "scanner": "object",
         "dependency_vulnerability": "object",
-        "limitations": "array"
+        "limitations": "array",
+        "source_fingerprint": "string"
       }
     },
     "completion": {
