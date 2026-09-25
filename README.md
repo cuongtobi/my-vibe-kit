@@ -308,7 +308,7 @@ The verify workflow records `acceptance-evidence.json` and `security-evidence.js
 python .vibe/tools/vibe.py complete --summary
 ```
 
-The completion gate can report `COMPLETE`, `INCOMPLETE_VERIFICATION`, `INCOMPLETE_ACCEPTANCE`, `INCOMPLETE_SECURITY`, or `INCOMPLETE`. Runtime security classification is advisory: `security-candidates.json` surfaces request/path/content/framework-route signals, while the agent records the final classification. If candidates exist but the final decision is non-sensitive, the evidence must include an override rationale.
+The acceptance/security records are bound to the exact `verification.json.source_fingerprint`, so a later source/config change plus re-verification makes old evidence stale until it is reviewed and recorded again. The completion gate can report `COMPLETE`, `INCOMPLETE_VERIFICATION`, `INCOMPLETE_ACCEPTANCE`, `INCOMPLETE_SECURITY`, or `INCOMPLETE`. Runtime security classification is advisory: `security-candidates.json` surfaces request/path/content/framework-route signals, while the agent records the final classification. If candidates exist but the final decision is non-sensitive, the evidence must include an override rationale.
 
 Architecture auto-strict evaluation is also task-aware. Once retrieval has explicit targets, size thresholds are evaluated against the relevant target modules rather than automatically promoting a large monorepo because of unrelated source files. `architecture-policy.json` exposes both repository size and the evaluated task scope.
 
