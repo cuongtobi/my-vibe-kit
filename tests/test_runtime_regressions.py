@@ -109,6 +109,24 @@ class RuntimeRegressionTests(unittest.TestCase):
             self.assertNotEqual(first, third)
             self.assertLess(hashed.call_count, 10)
 
+    def test_toolchain_change_invalidates_cache_and_verification_evidence(self):
+        self.write(".vibe/tools/runtime-marker.py", "VALUE = 1\n")
+        self.write(".vibe/adapters/frameworks/example.json", "{}\n")
+        self.write(".vibe/schemas/contracts-v1.json", "{}\n")
+        self.init_git()
+
+        core.project_context(self.root, force=True)
+        first_fingerprint = core.verification_fingerprint(self.root)
+        self.assertEqual(core.project_context(self.root)["cache"]["mode"], "CACHE_HIT")
+
+        # Managed runtime files are intentionally excluded from project Git deltas.
+        # Their own toolchain fingerprint must still invalidate both cache and evidence.
+        self.write(".vibe/tools/runtime-marker.py", "VALUE = 2\n")
+        refreshed = core.project_context(self.root)
+        self.assertEqual(refreshed["cache"]["mode"], "FULL_REBUILD")
+        self.assertEqual(refreshed["cache"]["reason"], "toolchain-changed")
+        self.assertNotEqual(first_fingerprint, core.verification_fingerprint(self.root))
+
     def test_unicode_paths_are_hashed_on_each_dirty_edit(self):
         self.write("a.py", "import té\n")
         self.write("té.py", "value = 1\n")
