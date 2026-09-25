@@ -190,6 +190,27 @@ def _stats_from_relative_paths(paths: List[str]) -> Dict[str, int]:
     return {"source_files": count, "feature_roots": len(feature_dirs)}
 
 
+def _module_key(value: str) -> str:
+    parts = Path(value).parts
+    if not parts:
+        return ""
+    if parts[0] in {"src", "app", "lib", "internal", "packages", "apps"} and len(parts) > 1:
+        return "/".join(parts[:2])
+    return parts[0]
+
+
+def _task_scope_paths(paths: Sequence[str], target_files: Optional[Sequence[str]]) -> Dict[str, object]:
+    repository_paths = [Path(value).as_posix() for value in paths]
+    targets = [Path(value).as_posix() for value in (target_files or [])]
+    modules = sorted({key for key in (_module_key(value) for value in targets) if key})
+    if not modules:
+        return {"mode": "repository", "modules": [], "paths": repository_paths}
+    scoped = [value for value in repository_paths if _module_key(value) in set(modules)]
+    if not scoped:
+        return {"mode": "repository", "modules": modules, "paths": repository_paths}
+    return {"mode": "task-modules", "modules": modules, "paths": scoped}
+
+
 def _source_stats(root: Path) -> Dict[str, int]:
     paths: List[str] = []
     for current, dirs, files in os.walk(str(root)):
@@ -246,7 +267,24 @@ def architecture_policy(
     if requested not in {"auto", "simple", "standard", "strict"}:
         requested = "auto"
 
-    stats = _stats_from_relative_paths(source_paths) if source_paths is not None else _source_stats(root)
+    if source_paths is None:
+        repository_paths: List[str] = []
+        for current, dirs, files in os.walk(str(root)):
+            current_path = Path(current)
+            dirs[:] = [name for name in dirs if name not in IGNORE_DIRS]
+            for name in files:
+                path = current_path / name
+                if path.suffix.lower() in SOURCE_EXTENSIONS:
+                    try:
+                        repository_paths.append(path.relative_to(root).as_posix())
+                    except ValueError:
+                        pass
+    else:
+        repository_paths = list(source_paths)
+    repository_stats = _stats_from_relative_paths(repository_paths)
+    scope = _task_scope_paths(repository_paths, target_files)
+    evaluation_paths = list(scope["paths"])
+    stats = _stats_from_relative_paths(evaluation_paths)
     thresholds = architecture.get("strict_thresholds") or {}
     auto_strict = bool(architecture.get("allow_auto_strict", True)) and (
         stats["source_files"] >= int(thresholds.get("source_files", 300))
@@ -299,11 +337,11 @@ def architecture_policy(
         decision_reasons.append("Standard profile explicitly configured.")
     elif auto_strict:
         decision_reasons.append(
-            "Auto profile promoted to strict because project size crossed configured thresholds."
+            "Auto profile promoted to strict because the evaluated architecture scope crossed configured thresholds."
         )
     else:
         decision_reasons.append(
-            "Auto profile uses standard by default; project size has not crossed strict thresholds."
+            "Auto profile uses standard by default; the evaluated architecture scope has not crossed strict thresholds."
         )
 
     return {
@@ -313,7 +351,13 @@ def architecture_policy(
         "module_style": "feature-first",
         "framework_conventions": str(architecture.get("framework_conventions", "prefer")),
         "stack": stack,
-        "project_size": stats,
+        "project_size": repository_stats,
+        "evaluation_size": stats,
+        "architecture_scope": {
+            "mode": scope["mode"],
+            "modules": scope["modules"],
+            "target_files": [Path(value).as_posix() for value in (target_files or [])],
+        },
         "strict_thresholds": thresholds,
         "auto_strict_triggered": auto_strict,
         "decision_reasons": decision_reasons,
