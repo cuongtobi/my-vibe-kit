@@ -304,7 +304,7 @@ Task được coi là `security-sensitive` khi request hoặc impact thực tế
 
 Ví dụ với refresh token/session, review phải xét token rotation/expiry, revocation, replay risk, cookie flags, session fixation, authorization boundary và việc log token/secret. Với file upload, review phải xét giới hạn dung lượng, MIME/extension, path traversal, filename sanitization, overwrite behavior, execution risk, storage boundary và authorization.
 
-Với task security-sensitive, lint/type/test/build pass hoặc runtime `PASS_VERIFIED` **chưa đủ** để coi task hoàn tất. Verify phải ghi **Security evidence** gồm surface bị ảnh hưởng, trust boundary, abuse case, control đã review, security-focused review trên diff cuối, targeted test/check, kết quả scanner nếu có, dependency-vulnerability evidence khi phù hợp và limitation còn lại. Completion gate deterministic yêu cầu abuse/control evidence không rỗng cùng diff review `passed` có evidence; nếu project không có scanner thì phải ghi rõ thay vì âm thầm coi là success.
+Với task security-sensitive, lint/type/test/build pass hoặc runtime `PASS_VERIFIED` **chưa đủ** để coi task hoàn tất. Verify phải ghi **Security evidence** gồm surface bị ảnh hưởng, trust boundary, abuse case, control đã review, security-focused review trên diff cuối, targeted test/check, kết quả scanner nếu có, dependency-vulnerability evidence khi phù hợp và limitation còn lại. Completion gate deterministic yêu cầu abuse/control evidence không rỗng cùng diff review `passed` có evidence. Scanner/dependency check ở trạng thái unavailable/not-configured/not-applicable phải có lý do, còn trạng thái `passed` phải có evidence; tooling thiếu không bao giờ được âm thầm coi là success.
 
 ## Runtime contracts và workflow completion
 
