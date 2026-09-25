@@ -70,7 +70,10 @@ class CompletionContractTests(unittest.TestCase):
             "classification": "not-security-sensitive",
             "surfaces": [],
             "trust_boundaries": [],
+            "abuse_cases": [],
+            "controls_reviewed": [],
             "targeted_checks": [],
+            "diff_review": {"status": "not-applicable", "evidence": []},
             "scanner": {"status": "not-applicable"},
             "dependency_vulnerability": {"status": "not-applicable"},
             "limitations": [],
@@ -171,7 +174,10 @@ class CompletionContractTests(unittest.TestCase):
             "classification": "security-sensitive",
             "surfaces": ["authentication-authorization"],
             "trust_boundaries": ["unauthenticated request -> protected handler"],
+            "abuse_cases": ["unauthorized caller reaches protected behavior"],
+            "controls_reviewed": ["authorization guard remains before protected handler"],
             "targeted_checks": [],
+            "diff_review": {"status": "passed", "evidence": ["reviewed final auth diff"]},
             "scanner": {"status": "not-available"},
             "dependency_vulnerability": {"status": "not-applicable"},
             "limitations": ["No project-native security scanner is configured."],
@@ -184,6 +190,70 @@ class CompletionContractTests(unittest.TestCase):
         ]
         vibe_workflow.record_evidence(root, "security", evidence)
         self.assertEqual(vibe_core.workflow_completion(root)["status"], "COMPLETE")
+
+    def test_sensitive_security_requires_abuse_controls_and_diff_review(self):
+        temp, root, _ = self.make_repo("change login authorization")
+        self.addCleanup(temp.cleanup)
+
+        vibe_core.verify(root)
+        vibe_workflow.record_evidence(root, "acceptance", self.acceptance())
+        evidence = {
+            "classification": "security-sensitive",
+            "surfaces": ["authentication-authorization"],
+            "trust_boundaries": ["request -> protected handler"],
+            "abuse_cases": [],
+            "controls_reviewed": [],
+            "targeted_checks": [
+                {"description": "unauthorized request is rejected", "result": "passed", "evidence": "focused test"}
+            ],
+            "diff_review": {"status": "unverified", "evidence": []},
+            "scanner": {"status": "not-configured"},
+            "dependency_vulnerability": {"status": "not-applicable"},
+            "limitations": ["No project-native security scanner is configured."],
+        }
+        vibe_workflow.record_evidence(root, "security", evidence)
+        self.assertEqual(vibe_core.workflow_completion(root)["status"], "INCOMPLETE_SECURITY")
+
+        evidence["abuse_cases"] = ["authorization bypass"]
+        evidence["controls_reviewed"] = ["route authorization guard"]
+        evidence["diff_review"] = {"status": "passed", "evidence": ["reviewed final diff against trust boundary"]}
+        vibe_workflow.record_evidence(root, "security", evidence)
+        self.assertEqual(vibe_core.workflow_completion(root)["status"], "COMPLETE")
+
+    def test_nested_config_types_fail_with_contract_errors(self):
+        temp, root, _ = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        invalid_configs = [
+            {"version": 3, "context": {"retrieval": {"fallback_read_bytes": "large"}}},
+            {"version": 3, "architecture": {"strict_thresholds": {"source_files": "many"}}},
+            {"version": 3, "tasks": {"retention": {"max_tasks": -1}}},
+            {"version": 3, "index": {"use_git_delta": "yes"}},
+        ]
+        for config in invalid_configs:
+            with self.subTest(config=config):
+                (root / ".vibe/config.json").write_text(json.dumps(config), encoding="utf-8")
+                with self.assertRaises(ContractError):
+                    vibe_core.load_config(root)
+
+    def test_security_classifier_reads_changed_diff_beyond_content_window(self):
+        temp, root, _ = self.make_repo("ordinary refactor")
+        self.addCleanup(temp.cleanup)
+        large = root / "large_component.ts"
+        large.write_text(("const filler = 'x';\n" * 5000) + "const safe = true;\n", encoding="utf-8")
+        self.git(root, "add", "large_component.ts")
+        self.git(root, "commit", "-m", "large baseline")
+        large.write_text(
+            ("const filler = 'x';\n" * 5000)
+            + "const safe = true;\n"
+            + "element.innerHTML = userMarkup;\n",
+            encoding="utf-8",
+        )
+
+        report = vibe_core.security_assessment(root, ["large_component.ts"], request="ordinary refactor")
+        self.assertIn("html-rendering", report["surfaces"])
+        self.assertIn("large_component.ts", report["files_truncated"])
+        sources = [item["source"] for item in report["evidence"]["html-rendering"]]
+        self.assertIn("diff", sources)
 
     def test_completion_rejects_evidence_from_previous_verified_source(self):
         temp, root, _ = self.make_repo()
