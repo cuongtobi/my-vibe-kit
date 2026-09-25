@@ -286,6 +286,34 @@ Ví dụ với refresh token/session, review phải xét token rotation/expiry, 
 
 Với task security-sensitive, lint/type/test/build pass hoặc runtime `PASS_VERIFIED` **chưa đủ** để coi task hoàn tất. Verify phải ghi một phần **Security evidence** riêng gồm security diff review, targeted test/check, kết quả scanner nếu có, dependency-vulnerability evidence khi phù hợp và các limitation còn lại. Nếu project không có scanner thì phải ghi rõ thay vì âm thầm coi là success.
 
+## Runtime contracts và workflow completion
+
+Runtime artifact giờ có `artifact_type` và `schema_version` rõ ràng. Validator chỉ dùng Python standard library và đọc `schemas/contracts-v1.json` làm contract manifest được commit cùng repo cho `project-map.json`, `dependency-map.json`, `relevant-context.json`, `verification.json`, task record, dependency diff, security candidate, structured evidence và completion status. Config version 1-3 vẫn đọc được để tương thích ngược, nhưng type sai hoặc version không hỗ trợ sẽ bị báo lỗi rõ ràng. Cache project/dependency không đúng contract sẽ bị rebuild thay vì được tin cậy.
+
+`PASS_VERIFIED` được giữ để tương thích và chỉ có nghĩa các runtime check đã cấu hình pass trên source fingerprint ổn định, đồng thời không vi phạm điều kiện dependency cycle. Trạng thái hoàn tất task là gate riêng:
+
+```text
+PASS_VERIFIED
+      +
+mọi acceptance criterion = met
+      +
+security decision/evidence rõ ràng
+      ↓
+COMPLETE
+```
+
+Verify ghi `acceptance-evidence.json` và `security-evidence.json` qua CLI, sau đó chạy:
+
+```bash
+python .vibe/tools/vibe.py complete --summary
+```
+
+Completion gate có thể trả `COMPLETE`, `INCOMPLETE_VERIFICATION`, `INCOMPLETE_ACCEPTANCE`, `INCOMPLETE_SECURITY` hoặc `INCOMPLETE`. Security classifier của runtime chỉ là advisory: `security-candidates.json` thu tín hiệu từ request/path/content/framework route, còn agent vẫn quyết định classification cuối cùng. Nếu runtime có candidate nhưng quyết định cuối là non-sensitive thì evidence phải ghi rationale override.
+
+Auto-strict architecture cũng trở thành task-aware. Khi retrieval đã có target rõ ràng, threshold được đánh giá trên các module liên quan tới task thay vì tự động ép cả monorepo lớn sang strict chỉ vì có nhiều source file không liên quan. `architecture-policy.json` hiển thị cả kích thước repository và task scope thực tế dùng để quyết định.
+
+Retrieval bổ sung `selection_diagnostics` và `test_diagnostics`, giải thích file được chọn vì là target, forward dependency, reverse consumer hay test liên quan, kèm dependency depth và cạnh `via` gần nhất khi có.
+
 ## Kiến trúc persistent context
 
 Kit không coi chat history hoặc toàn bộ task cũ là source of truth.
@@ -954,7 +982,12 @@ my-vibe-kit/
 │   ├── vibe_tasks.py
 │   ├── vibe_stacks.py
 │   ├── vibe_architecture.py
+│   ├── vibe_contracts.py
+│   ├── vibe_security.py
+│   ├── vibe_workflow.py
 │   └── vibe_state.py
+├── schemas/
+│   └── contracts-v1.json
 ├── benchmarks/
 │   └── benchmark_runtime.py
 ├── adapters/
@@ -1255,7 +1288,7 @@ Xuất JSON:
 python benchmarks/benchmark_runtime.py --sizes 1000 5000 20000 --json
 ```
 
-CI chạy một benchmark smoke nhỏ. Workflow GitHub Actions `performance-benchmark` được chạy thủ công cho full 1k/5k/20k và upload `benchmark-results.json` làm artifact. Nên so sánh các lần chạy trên cùng máy/runtime vì thời gian tuyệt đối phụ thuộc môi trường.
+CI chạy một benchmark smoke nhỏ. Workflow GitHub Actions `performance-benchmark` chạy thủ công hoặc khi publish release cho full 1k/5k/20k. Workflow restore baseline gần nhất trên cùng runner, ghi delta phần trăm dạng diagnostic vào `benchmark-comparison.json`, cache kết quả hiện tại làm baseline kế tiếp và upload artifact gắn SHA trong 90 ngày. So sánh này không phải hard pass/fail threshold vì thời gian tuyệt đối phụ thuộc tải runner và môi trường.
 
 ### Vì sao không dùng SQLite?
 
