@@ -43,6 +43,18 @@ def slugify(value: str, limit: int = 48) -> str:
     return (slug or "task")[:limit].rstrip("-")
 
 
+def _safe_task_path(root: Path, value: object) -> Optional[Path]:
+    if not isinstance(value, str) or not value:
+        return None
+    base = tasks_dir(root).resolve()
+    candidate = (root / value).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        return None
+    return candidate
+
+
 def start_task(root: Path, mode: str, request: str) -> Dict[str, object]:
     valid_modes = {"feature", "change", "bug_fix", "refactor", "hotfix"}
     if mode not in valid_modes:
@@ -80,7 +92,7 @@ def current_task(root: Path) -> Optional[Dict[str, object]]:
     path = runtime_dir(root) / "current-task.json"
     data = json_load(path, None)
     if artifact_is_valid("task", data):
-        return data
+        return data if _safe_task_path(root, data.get("path")) is not None else None
     if not isinstance(data, dict):
         return None
     # Pre-contract task records are safe to migrate only when they have no
@@ -96,8 +108,10 @@ def current_task(root: Path) -> Optional[Dict[str, object]]:
         migrated = stamp_artifact("task", data)
     except ContractError:
         return None
+    task_path = _safe_task_path(root, migrated.get("path"))
+    if task_path is None:
+        return None
     json_dump(path, migrated)
-    task_path = root / str(migrated["path"])
     if task_path.is_dir():
         json_dump(task_path / "task.json", migrated)
     return migrated
@@ -107,10 +121,7 @@ def current_task_path(root: Path) -> Optional[Path]:
     task = current_task(root)
     if not task:
         return None
-    relative = task.get("path")
-    if not isinstance(relative, str):
-        return None
-    return root / relative
+    return _safe_task_path(root, task.get("path"))
 
 
 def copy_to_current_task(root: Path, filename: str, data: object) -> None:
