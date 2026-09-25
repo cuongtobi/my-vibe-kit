@@ -185,6 +185,52 @@ class CompletionContractTests(unittest.TestCase):
         vibe_workflow.record_evidence(root, "security", evidence)
         self.assertEqual(vibe_core.workflow_completion(root)["status"], "COMPLETE")
 
+    def test_completion_rejects_evidence_from_previous_verified_source(self):
+        temp, root, _ = self.make_repo()
+        self.addCleanup(temp.cleanup)
+
+        vibe_core.verify(root)
+        vibe_workflow.record_evidence(root, "acceptance", self.acceptance())
+        vibe_workflow.record_evidence(root, "security", self.non_sensitive_security())
+        self.assertEqual(vibe_core.workflow_completion(root)["status"], "COMPLETE")
+
+        (root / "a.py").write_text("value = 2\n", encoding="utf-8")
+        vibe_core.verify(root)
+        stale = vibe_core.workflow_completion(root)
+        self.assertFalse(stale["acceptance_ok"])
+        self.assertFalse(stale["security_ok"])
+        self.assertIn("acceptance-evidence-incomplete", stale["blocking_reasons"])
+
+        vibe_workflow.record_evidence(root, "acceptance", self.acceptance())
+        vibe_workflow.record_evidence(root, "security", self.non_sensitive_security())
+        self.assertEqual(vibe_core.workflow_completion(root)["status"], "COMPLETE")
+
+    def test_task_artifact_path_cannot_escape_task_storage(self):
+        temp, root, task = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        malicious = dict(task)
+        malicious["path"] = "../../outside-task"
+        (root / ".vibe/runtime/current-task.json").write_text(
+            json.dumps(malicious),
+            encoding="utf-8",
+        )
+
+        self.assertIsNone(vibe_core.current_task(root))
+        self.assertIsNone(vibe_core.current_task_path(root))
+
+    def test_security_classifier_ignores_paths_outside_repository(self):
+        temp, root, _ = self.make_repo("ordinary change")
+        self.addCleanup(temp.cleanup)
+
+        report = vibe_core.security_assessment(
+            root,
+            ["../secret-token.py", "../../credentials.py"],
+            request="ordinary change",
+        )
+
+        self.assertEqual(report["files_considered"], [])
+        self.assertEqual(report["surfaces"], [])
+
     def test_architecture_auto_strict_uses_task_module_scope(self):
         temp, root, _ = self.make_repo()
         self.addCleanup(temp.cleanup)
