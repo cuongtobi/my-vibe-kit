@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from vibe_architecture import architecture_policy, default_architecture_config
+from vibe_contracts import ContractError, artifact_is_valid, stamp_artifact, validate_config
+from vibe_security import classify_security_candidates
+from vibe_workflow import evaluate_completion, record_evidence as record_workflow_evidence
 from vibe_stacks import (
     detect_stack as detect_stack_extended,
     effective_adapter,
@@ -189,10 +192,18 @@ def config_path(root: Path) -> Path:
 
 
 def load_config(root: Path) -> Dict[str, object]:
-    data = json_load(config_path(root), {})
-    if not isinstance(data, dict):
-        data = {}
+    path = config_path(root)
+    raw = json_load(path, None)
+    if raw is None:
+        if path.exists():
+            raise ContractError("Config must be valid UTF-8 JSON matching a supported contract.")
+        data: Dict[str, object] = {}
+    elif not isinstance(raw, dict):
+        raise ContractError("Config must be a JSON object.")
+    else:
+        data = dict(raw)
     data.setdefault("version", 3)
+    validate_config(data)
     data.setdefault("architecture", default_architecture_config())
     data.setdefault("context", {})
     data.setdefault("index", {})
@@ -207,9 +218,6 @@ def load_config(root: Path) -> Dict[str, object]:
     data["context"].setdefault("max_related_modules", 8)
     data["context"].setdefault("retrieval", {})
     retrieval = data["context"]["retrieval"]
-    if not isinstance(retrieval, dict):
-        retrieval = {}
-        data["context"]["retrieval"] = retrieval
     retrieval.setdefault("min_index_score", 6)
     retrieval.setdefault("fallback_max_scan_files", 20000)
     retrieval.setdefault("fallback_read_bytes", 131072)
@@ -226,12 +234,12 @@ def load_config(root: Path) -> Dict[str, object]:
     data["tasks"].setdefault("retention", {})
     retention = data["tasks"]["retention"]
     if not isinstance(retention, dict):
-        retention = {}
-        data["tasks"]["retention"] = retention
+        raise ContractError("config.tasks.retention must be an object.")
     retention.setdefault("policy", "bounded")
     retention.setdefault("max_tasks", 100)
     retention.setdefault("max_age_days", 90)
     retention.setdefault("cleanup", "manual")
+    validate_config(data)
     return data
 
 
@@ -526,7 +534,10 @@ def project_context(root: Path, force: bool = False) -> Dict[str, object]:
         framework = load_cache(root, "framework", {})
         adapter = load_cache(root, "adapter", {})
         architecture = load_cache(root, "architecture", {})
-        if all(isinstance(item, dict) for item in (cached, framework, adapter, architecture)):
+        if (
+            all(isinstance(item, dict) for item in (cached, framework, adapter, architecture))
+            and artifact_is_valid("project-map", cached)
+        ):
             data = dict(cached)
             data["cache"] = {
                 "mode": "CACHE_HIT",
@@ -646,6 +657,7 @@ def project_context(root: Path, force: bool = False) -> Dict[str, object]:
         },
     }
 
+    data = stamp_artifact("project-map", data)
     repo_state = refresh["repo_state"]
     write_cache(root, "files", file_index, repo_state)
     write_cache(root, "framework", framework, repo_state)
@@ -1123,7 +1135,7 @@ def _dependency_payload(
     if ".rb" in suffixes:
         scanners.append("ruby-require")
 
-    return {
+    return stamp_artifact("dependency-map", {
         "generated_at": utc_now(),
         "stack": stack,
         "scanners": scanners or ["project-map-only"],
@@ -1144,11 +1156,11 @@ def _dependency_payload(
         ],
         "primary_language": stack.get("primary"),
         "cache": cache_meta,
-    }
+    })
 
 
 def _valid_dependency_cache(data: object) -> bool:
-    if not isinstance(data, dict):
+    if not artifact_is_valid("dependency-map", data):
         return False
 
     def string_list(value: object) -> bool:
@@ -1336,6 +1348,32 @@ def changed_files(root: Path) -> List[str]:
     return sorted(set(output))
 
 
+def security_assessment(
+    root: Path,
+    targets: Optional[Sequence[str]] = None,
+    *,
+    request: Optional[str] = None,
+) -> Dict[str, object]:
+    task = current_task(root) or {}
+    active_request = str(request if request is not None else task.get("request") or "")
+    selected = [Path(value).as_posix() for value in (targets or changed_files(root))]
+    if not selected:
+        previous = json_load(runtime_dir(root) / "relevant-context.json", {})
+        if isinstance(previous, dict):
+            selected = [str(value) for value in (previous.get("targets") or []) if isinstance(value, str)]
+    framework = json_load(runtime_dir(root) / "framework-map.json", {})
+    routes = framework.get("routes") if isinstance(framework, dict) else []
+    data = classify_security_candidates(
+        root,
+        request=active_request,
+        files=selected,
+        framework_routes=routes if isinstance(routes, list) else [],
+    )
+    json_dump(runtime_dir(root) / "security-candidates.json", data)
+    copy_to_current_task(root, "security-candidates.json", data)
+    return data
+
+
 def relevant_context(
     root: Path,
     targets: Optional[Sequence[str]] = None,
@@ -1403,6 +1441,12 @@ def relevant_context(
     if task_view:
         data["task_primary_stack"] = task_view
 
+    security = security_assessment(root, data.get("targets") or [], request=active_query)
+    data["security_candidates"] = {
+        "classification": security.get("classification"),
+        "surfaces": security.get("surfaces") or [],
+    }
+    data = stamp_artifact("relevant-context", data)
     json_dump(runtime_dir(root) / "relevant-context.json", data)
     copy_to_current_task(root, "relevant-context.json", data)
     return data
@@ -1538,7 +1582,7 @@ def dependency_diff(root: Path) -> Dict[str, object]:
     before_cycles = cycle_set(before)
     after_cycles = cycle_set(after)
 
-    return {
+    return stamp_artifact("dependency-diff", {
         "generated_at": utc_now(),
         "added_edges": [
             {"from": source, "to": target}
@@ -1552,7 +1596,7 @@ def dependency_diff(root: Path) -> Dict[str, object]:
         "removed_cycles": [list(item) for item in sorted(before_cycles - after_cycles)],
         "before_nodes": len(before.get("nodes") or []),
         "after_nodes": len(after.get("nodes") or []),
-    }
+    })
 
 
 def verification_fingerprint(root: Path) -> str:
@@ -1633,6 +1677,7 @@ def verify(root: Path) -> Dict[str, object]:
         status = "PASS_VERIFIED"
 
     architecture = json_load(runtime_dir(root) / "architecture-policy.json", {})
+    security = security_assessment(root, changed_files(root))
     data = {
         "generated_at": utc_now(),
         "status": status,
@@ -1657,9 +1702,39 @@ def verify(root: Path) -> Dict[str, object]:
         "new_cycles": new_cycles,
         "git_status": (git(root, "status", "--short") or "").splitlines(),
         "git_diff_stat": git(root, "diff", "--stat"),
+        "security_candidate_surfaces": security.get("surfaces") or [],
     }
+    data = stamp_artifact("verification", data)
     json_dump(runtime_dir(root) / "verification.json", data)
     copy_to_current_task(root, "verification.json", data)
+    return data
+
+
+def record_evidence(root: Path, kind: str, source: Path) -> Dict[str, object]:
+    payload = json_load(source, None)
+    if payload is None:
+        raise ContractError("Evidence input must be valid UTF-8 JSON.")
+    return record_workflow_evidence(root, kind, payload)
+
+
+def workflow_completion(root: Path) -> Dict[str, object]:
+    task = current_task(root)
+    report = json_load(runtime_dir(root) / "verification.json", None)
+    candidates = json_load(runtime_dir(root) / "security-candidates.json", None)
+    verification_current = (
+        artifact_is_valid("verification", report)
+        and isinstance(task, dict)
+        and report.get("task_id") == task.get("id")
+        and report.get("source_fingerprint") == verification_fingerprint(root)
+    )
+    data = evaluate_completion(
+        root,
+        verification=report,
+        verification_current=verification_current,
+        security_candidates=candidates,
+    )
+    json_dump(runtime_dir(root) / "completion.json", data)
+    copy_to_current_task(root, "completion.json", data)
     return data
 
 
@@ -1667,14 +1742,16 @@ def status(root: Path) -> Dict[str, object]:
     task = current_task(root)
     report = json_load(runtime_dir(root) / "verification.json")
     verification_current = (
-        isinstance(report, dict)
+        artifact_is_valid("verification", report)
         and report.get("task_id") == (task or {}).get("id")
         and report.get("source_fingerprint") == verification_fingerprint(root)
     )
+    completion = workflow_completion(root)
     return {
         "root": str(root),
         "task": task,
         "verification_current": verification_current,
+        "completion": completion,
         "stack": detect_stack(root),
         "persistent_state": persistent_state_summary(root),
         "task_history": task_lifecycle(root, load_config(root), apply=False),
@@ -1685,5 +1762,7 @@ def status(root: Path) -> Dict[str, object]:
             "relevant_context": (runtime_dir(root) / "relevant-context.json").exists(),
             "impact": (runtime_dir(root) / "impact.json").exists(),
             "verification": (runtime_dir(root) / "verification.json").exists(),
+            "security_candidates": (runtime_dir(root) / "security-candidates.json").exists(),
+            "completion": (runtime_dir(root) / "completion.json").exists(),
         },
     }
