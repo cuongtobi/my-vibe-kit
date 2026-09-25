@@ -166,11 +166,12 @@ def classify_security_candidates(
 
         path = root / relative
         try:
-            raw = path.read_bytes()
-            truncated = len(raw) > MAX_CLASSIFIER_BYTES
+            truncated = path.stat().st_size > MAX_CLASSIFIER_BYTES
             if truncated:
                 truncated_files.append(relative)
-            text = raw[:MAX_CLASSIFIER_BYTES].decode("utf-8", errors="replace")
+            with path.open("rb") as handle:
+                raw = handle.read(MAX_CLASSIFIER_BYTES)
+            text = raw.decode("utf-8", errors="replace")
         except OSError:
             continue
         for surface, patterns in RULES.items():
