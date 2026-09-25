@@ -16,6 +16,14 @@ Understand the smallest safe change before implementation.
 - Existing source/tests/configuration.
 - Runtime context/dependency facts when `.vibe/tools/vibe.py` exists.
 
+## Behavioral planning rules
+
+- Surface assumptions that materially affect the solution; do not silently choose between materially different interpretations.
+- Ask only when unresolved ambiguity can change behavior, public contracts, persisted data, security, compatibility, destructive effects, or task scope. For minor/reversible ambiguity, state the conservative assumption and proceed.
+- When a materially simpler approach satisfies the same acceptance behavior, prefer it and record the tradeoff instead of silently choosing a more elaborate design.
+- Do not turn uncertainty into speculative scope. Unknowns should become explicit plan uncertainties or evidence gaps, not extra features/abstractions.
+- Express non-trivial implementation steps as **step -> verification evidence** so the build/verify phases know what success means.
+
 ## Procedure
 
 1. Determine the task mode (`feature`, `change`, `bug_fix`, `refactor`, or `hotfix`) and whether the user requested analysis only or implementation. A planning-only request ends after the plan.
@@ -121,7 +129,8 @@ Include:
 - verification commands,
 - pre-existing changes and baseline availability,
 - acceptance criteria mapped to evidence,
-- known uncertainty.
+- material assumptions and tradeoffs,
+- known uncertainty/evidence gaps.
 
 Assign stable criterion IDs, for example `AC1`, and record each observable expected result with the test, command, or manual check that can demonstrate it. Include relevant failure/compatibility cases. Reuse suitable checks; do not add tests for trivial edits when a direct check suffices. Mark any criterion with no feasible check as an explicit evidence gap. Build and verify use these same IDs.
 
