@@ -288,7 +288,24 @@ def validate_security_semantics(data: Dict[str, object]) -> None:
         item = data.get(key)
         if not isinstance(item, dict):
             raise ContractError("security-evidence.{} must be an object.".format(key))
-        if item.get("status") not in {
+        status = item.get("status")
+        if status not in {
             "passed", "failed", "unverified", "not-available", "not-configured", "not-applicable"
         }:
             raise ContractError("security-evidence.{}.status is invalid.".format(key))
+        if status in {"not-available", "not-configured", "not-applicable"}:
+            reason = item.get("reason")
+            if not isinstance(reason, str) or not reason.strip():
+                raise ContractError("security-evidence.{} requires a reason for status {}.".format(key, status))
+        if status == "passed":
+            evidence = item.get("evidence")
+            if isinstance(evidence, str):
+                evidence_ok = bool(evidence.strip())
+            elif isinstance(evidence, list):
+                evidence_ok = bool(evidence) and all(
+                    isinstance(value, str) and value.strip() for value in evidence
+                )
+            else:
+                evidence_ok = False
+            if not evidence_ok:
+                raise ContractError("security-evidence.{} requires evidence when passed.".format(key))
