@@ -74,8 +74,8 @@ class CompletionContractTests(unittest.TestCase):
             "controls_reviewed": [],
             "targeted_checks": [],
             "diff_review": {"status": "not-applicable", "evidence": []},
-            "scanner": {"status": "not-applicable"},
-            "dependency_vulnerability": {"status": "not-applicable"},
+            "scanner": {"status": "not-applicable", "reason": "Task is not security-sensitive."},
+            "dependency_vulnerability": {"status": "not-applicable", "reason": "No dependency change or dependency-sensitive surface."},
             "limitations": [],
         }
         data.update(extra)
@@ -178,8 +178,8 @@ class CompletionContractTests(unittest.TestCase):
             "controls_reviewed": ["authorization guard remains before protected handler"],
             "targeted_checks": [],
             "diff_review": {"status": "passed", "evidence": ["reviewed final auth diff"]},
-            "scanner": {"status": "not-available"},
-            "dependency_vulnerability": {"status": "not-applicable"},
+            "scanner": {"status": "not-available", "reason": "No project-native security scanner is configured."},
+            "dependency_vulnerability": {"status": "not-applicable", "reason": "No dependency change or dependency-sensitive surface."},
             "limitations": ["No project-native security scanner is configured."],
         }
         vibe_workflow.record_evidence(root, "security", evidence)
@@ -207,8 +207,8 @@ class CompletionContractTests(unittest.TestCase):
                 {"description": "unauthorized request is rejected", "result": "passed", "evidence": "focused test"}
             ],
             "diff_review": {"status": "unverified", "evidence": []},
-            "scanner": {"status": "not-configured"},
-            "dependency_vulnerability": {"status": "not-applicable"},
+            "scanner": {"status": "not-configured", "reason": "No project-native security scanner is configured."},
+            "dependency_vulnerability": {"status": "not-applicable", "reason": "No dependency change or dependency-sensitive surface."},
             "limitations": ["No project-native security scanner is configured."],
         }
         vibe_workflow.record_evidence(root, "security", evidence)
