@@ -204,7 +204,7 @@ def prune_obsolete_managed_files(
         exclusive_roots.extend(Path(".claude/skills") / name for name in skill_names)
     for relative_root in exclusive_roots:
         absolute_root = target / relative_root
-        if not absolute_root.is_dir():
+        if absolute_root.is_symlink() or not absolute_root.is_dir():
             continue
         for path in absolute_root.rglob("*"):
             if path.is_file() or path.is_symlink():
