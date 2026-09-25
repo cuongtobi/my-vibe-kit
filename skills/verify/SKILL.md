@@ -108,7 +108,9 @@ python .vibe/tools/vibe.py evidence security --file .vibe/runtime/security-input
 python .vibe/tools/vibe.py complete --summary
 ```
 
-Acceptance input must contain a non-empty `criteria` array. Every item uses the stable criterion id from plan, a non-empty `expected` string, an `evidence` array of actual commands/tests/manual checks, and `result: met|unmet|unverified`. Completion requires every criterion to be `met`.
+Acceptance input must contain a non-empty `criteria` array. Every item uses the stable criterion id from plan, a non-empty `expected` string, an `evidence` array of actual commands/tests/manual checks, and `result: met|unmet|unverified`. A `met` criterion requires non-empty evidence. Completion requires every criterion to be `met`.
+
+The runtime binds both acceptance and security evidence to the current `verification.json.source_fingerprint`. If source/config inputs change and verification is rerun, previously recorded evidence becomes stale and the completion gate stays incomplete until evidence is reviewed and recorded again for the new fingerprint.
 
 Security input is required for every completed task so the final classification is explicit. It records `classification: security-sensitive|not-security-sensitive`, `surfaces`, `trust_boundaries`, `targeted_checks`, `scanner`, `dependency_vulnerability`, and `limitations`. For a sensitive task, at least one surface, trust boundary, and passed targeted check are required; scanner/dependency-vulnerability status must be explicit even when tooling is not available or not applicable. If runtime produced candidate surfaces but the final decision is `not-security-sensitive`, include a non-empty `candidate_override_reason`.
 
