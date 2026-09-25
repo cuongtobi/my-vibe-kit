@@ -304,11 +304,11 @@ Task được coi là `security-sensitive` khi request hoặc impact thực tế
 
 Ví dụ với refresh token/session, review phải xét token rotation/expiry, revocation, replay risk, cookie flags, session fixation, authorization boundary và việc log token/secret. Với file upload, review phải xét giới hạn dung lượng, MIME/extension, path traversal, filename sanitization, overwrite behavior, execution risk, storage boundary và authorization.
 
-Với task security-sensitive, lint/type/test/build pass hoặc runtime `PASS_VERIFIED` **chưa đủ** để coi task hoàn tất. Verify phải ghi một phần **Security evidence** riêng gồm security diff review, targeted test/check, kết quả scanner nếu có, dependency-vulnerability evidence khi phù hợp và các limitation còn lại. Nếu project không có scanner thì phải ghi rõ thay vì âm thầm coi là success.
+Với task security-sensitive, lint/type/test/build pass hoặc runtime `PASS_VERIFIED` **chưa đủ** để coi task hoàn tất. Verify phải ghi **Security evidence** gồm surface bị ảnh hưởng, trust boundary, abuse case, control đã review, security-focused review trên diff cuối, targeted test/check, kết quả scanner nếu có, dependency-vulnerability evidence khi phù hợp và limitation còn lại. Completion gate deterministic yêu cầu abuse/control evidence không rỗng cùng diff review `passed` có evidence; nếu project không có scanner thì phải ghi rõ thay vì âm thầm coi là success.
 
 ## Runtime contracts và workflow completion
 
-Runtime artifact giờ có `artifact_type` và `schema_version` rõ ràng. Validator chỉ dùng Python standard library và đọc `schemas/contracts-v1.json` làm contract manifest được commit cùng repo cho `project-map.json`, `dependency-map.json`, `relevant-context.json`, `verification.json`, task record, dependency diff, security candidate, structured evidence và completion status. Config version 1-3 vẫn đọc được để tương thích ngược, nhưng type sai hoặc version không hỗ trợ sẽ bị báo lỗi rõ ràng. Cache project/dependency không đúng contract sẽ bị rebuild thay vì được tin cậy.
+Runtime artifact giờ có `artifact_type` và `schema_version` rõ ràng. Validator chỉ dùng Python standard library và đọc `schemas/contracts-v1.json` làm contract manifest được commit cùng repo cho `project-map.json`, `dependency-map.json`, `relevant-context.json`, `verification.json`, task record, dependency diff, security candidate, structured evidence và completion status. Config version 1-3 vẫn đọc được để tương thích ngược, nhưng giá trị nested sai type/range ở retrieval, index, dependency, verification, task retention hoặc architecture và version không hỗ trợ sẽ bị báo `ContractError` rõ ràng. Cache project/dependency không đúng contract sẽ bị rebuild thay vì được tin cậy.
 
 `PASS_VERIFIED` được giữ để tương thích và chỉ có nghĩa các runtime check đã cấu hình pass trên source fingerprint ổn định, đồng thời không vi phạm điều kiện dependency cycle. Trạng thái hoàn tất task là gate riêng:
 
@@ -384,7 +384,7 @@ State local tái sử dụng nằm tại:
 
 `file-index.json` đồng thời lưu search index có giới hạn cho source: symbol đã phát hiện và các Unicode identifier/content term có tín hiệu cao của từng file. Tokenizer giữ dạng Unicode gốc cùng dạng bỏ dấu để so khớp; một số cụm kỹ thuật tiếng Việt phổ biến được mở rộng sang alias gần với identifier trong code như login/session/expiry, và project có thể bổ sung alias riêng trong config. Khi refresh incremental, chỉ file thay đổi mới phải index lại. `content-hashes.json` lưu riêng content hash phục vụ verification để fingerprint lặp lại có thể dùng lại hash của file không đổi thay vì mở và hash lại toàn bộ source.
 
-Để xác định cache còn hợp lệ, runtime dùng Git HEAD, hash của file dirty/untracked và hash cấu hình runtime. Đường dẫn Git được đọc bằng output phân cách NUL để giữ đúng Unicode, khoảng trắng và rename. Repository Git index file tracked và file untracked không bị ignore, trong giới hạn file và quy tắc loại trừ thư mục của kit. File generated bị ignore không vào graph trừ khi đã tracked; ngoài Git, scanner filesystem vẫn hoạt động và refresh đầy đủ.
+Để xác định cache còn hợp lệ, runtime dùng Git HEAD, hash của file dirty/untracked, hash cấu hình runtime và **toolchain fingerprint** deterministic của runtime/adapters/schemas do kit quản lý. Vì vậy nâng cấp kit sẽ tự làm stale context/dependency cache cũ ngay cả khi source project không đổi. Verification source fingerprint cũng chứa toolchain fingerprint nên evidence tạo bằng runtime cũ không thể tiếp tục được coi là current sau upgrade. Đường dẫn Git được đọc bằng output phân cách NUL để giữ đúng Unicode, khoảng trắng và rename. Repository Git index file tracked và file untracked không bị ignore, trong giới hạn file và quy tắc loại trừ thư mục của kit. File generated bị ignore không vào graph trừ khi đã tracked; ngoài Git, scanner filesystem vẫn hoạt động và refresh đầy đủ.
 
 `index.use_git_delta=false` tắt incremental refresh: cache hợp lệ vẫn được dùng khi không có thay đổi, nhưng repository đã thay đổi sẽ full rebuild. `impact` refresh qua cùng cache engine trước khi tính consumer và test bị ảnh hưởng. Thuật toán phát hiện cycle không dùng đệ quy nên dependency chain sâu không làm vượt giới hạn recursion của Python.
 
@@ -403,7 +403,7 @@ INCREMENTAL_REFRESH
 
 FULL_REBUILD
     lần chạy đầu, cache thiếu/hỏng, Git delta không khả dụng,
-    schema/scanner không tương thích, hoặc user force rebuild
+    schema/scanner không tương thích, kit toolchain thay đổi, hoặc user force rebuild
 ```
 
 Cache hit giúp tiết kiệm công việc. Nó **không** có nghĩa code đã pass test.
@@ -1171,13 +1171,13 @@ Apply managed update:
 python install.py --target /duong-dan/toi/project --agents all --force
 ```
 
-`--force` refresh managed runtime/skill/integration file nhưng cố ý giữ nguyên file do project sở hữu:
+`--force` refresh managed runtime/skill/integration file, đối chiếu lại các subtree do kit sở hữu với manifest hiện tại và xóa managed file đã obsolete, nhưng cố ý giữ nguyên file do project sở hữu:
 
 - `AGENTS.md`
 - `CLAUDE.md`
 - `.vibe/config.json`
 
-Khi nâng cấp installation cũ, nên so config project với `vibe.config.example.json`. Runtime có default an toàn cho key v3 bị thiếu, nhưng merge rõ các setting context/index/task mới vẫn là lựa chọn tốt hơn.
+Khi nâng cấp installation cũ, nên so config project với `vibe.config.example.json`. Runtime có default an toàn cho key v3 bị thiếu, nhưng merge rõ các setting context/index/task mới vẫn là lựa chọn tốt hơn. Install manifest schema v2 lưu chính xác danh sách managed file để các lần nâng cấp sau có thể dọn file kit đã rename/xóa mà không chạm vào custom skill không liên quan.
 
 ## Hành vi cài đặt an toàn
 
@@ -1189,7 +1189,11 @@ Installer:
 - báo managed-file conflict,
 - hỗ trợ `--dry-run`, kể cả Claude bundle mà không tạo thư mục hoặc ghi đè ZIP,
 - giữ nguyên `install-manifest.json` bị conflict trừ khi có `--force`,
+- dùng manifest schema v2 để ghi chính xác managed file và chỉ prune file obsolete ở vị trí kit đang/đã sở hữu khi dùng `--force`,
+- giữ nguyên custom skill directory không liên quan,
 - loại `__pycache__`, `.pyc` và `.pyo` khỏi file cài đặt và bundle,
+- rebuild Claude ZIP khi được yêu cầu để archive đã tồn tại không thể âm thầm stale,
+- nhúng frontend policy dùng chung trực tiếp vào ZIP `plan`/`build`/`verify` để mỗi bundle self-contained,
 - chỉ refresh file do kit quản lý khi dùng `--force`.
 
 Nên review diff của target repository trước khi commit.
