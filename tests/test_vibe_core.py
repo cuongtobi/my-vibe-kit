@@ -234,6 +234,43 @@ class VibeCoreTests(unittest.TestCase):
         backend_redesign = vibe_core.relevant_context(root, ["app/api/items/route.ts"])
         self.assertFalse(backend_redesign["frontend"]["enabled"])
 
+    def test_frontend_context_detects_nested_monorepo_package_tooling(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "package.json").write_text(
+            json.dumps({"private": True, "workspaces": ["apps/*"]}),
+            encoding="utf-8",
+        )
+        web = root / "apps" / "web"
+        component = web / "src" / "components"
+        component.mkdir(parents=True)
+        (web / "package.json").write_text(
+            json.dumps({
+                "dependencies": {"react": "^19.0.0"},
+                "devDependencies": {"@playwright/test": "^1.59.0"},
+            }),
+            encoding="utf-8",
+        )
+        (web / "DESIGN.md").write_text("# Web design\n", encoding="utf-8")
+        (component / "Card.tsx").write_text(
+            "export function Card() { return <article>Card</article> }\n",
+            encoding="utf-8",
+        )
+
+        vibe_core.start_task(root, "change", "refine card component")
+        relevant = vibe_core.relevant_context(root, ["apps/web/src/components/Card.tsx"])
+        frontend = relevant["frontend"]
+
+        self.assertTrue(frontend["enabled"])
+        self.assertIn("react", frontend["frameworks"])
+        self.assertEqual(frontend["design_context"]["path"], "apps/web/DESIGN.md")
+        self.assertIn("apps/web", frontend["signals"]["package_roots"])
+        self.assertIn("playwright", frontend["visual_qa"]["browser_tooling"])
+        self.assertIn(
+            {"tool": "playwright", "package_root": "apps/web"},
+            frontend["visual_qa"]["browser_tooling_details"],
+        )
+
     def test_wordpress_plugin_context_and_architecture_guidance(self):
         temp, root = self.make_repo()
         self.addCleanup(temp.cleanup)
