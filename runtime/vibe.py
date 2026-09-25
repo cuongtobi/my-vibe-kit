@@ -13,11 +13,14 @@ from vibe_core import (
     load_config,
     project_context,
     relevant_context,
+    record_evidence,
     repository_root,
+    security_assessment,
     snapshot_dependencies,
     start_task,
     status,
     verify,
+    workflow_completion,
 )
 from vibe_state import load_cache, state_summary
 from vibe_tasks import task_lifecycle
@@ -71,6 +74,17 @@ def parser() -> argparse.ArgumentParser:
 
     impact = sub.add_parser("impact", help="Compute reverse dependency and test impact.")
     impact.add_argument("files", nargs="*", help="Target files. Defaults to changed git files.")
+
+    security = sub.add_parser("security", help="Classify candidate security-sensitive surfaces; agent decision remains authoritative.")
+    security.add_argument("files", nargs="*", help="Optional target files; defaults to changed/relevant files.")
+
+    evidence = sub.add_parser("evidence", help="Record structured task evidence against runtime contracts.")
+    evidence_sub = evidence.add_subparsers(dest="evidence_kind", required=True)
+    for evidence_kind in ("acceptance", "security"):
+        item = evidence_sub.add_parser(evidence_kind, help="Record {} evidence JSON.".format(evidence_kind))
+        item.add_argument("--file", required=True, help="Path to the evidence JSON input.")
+
+    output_options(sub.add_parser("complete", help="Evaluate verification + acceptance + security completion gate."))
 
     task = sub.add_parser("task", help="Manage task records.")
     task_sub = task.add_subparsers(dest="task_command", required=True)
@@ -163,6 +177,24 @@ def main() -> int:
     if args.command == "impact":
         emit(impact_analysis(repo, args.files or None))
         return 0
+    if args.command == "security":
+        emit(security_assessment(repo, args.files or None))
+        return 0
+    if args.command == "evidence":
+        source = Path(args.file).expanduser()
+        emit(record_evidence(repo, args.evidence_kind, source))
+        return 0
+    if args.command == "complete":
+        completion = workflow_completion(repo)
+        emit_artifact(completion, {
+            "artifact": ".vibe/runtime/completion.json",
+            "status": completion["status"],
+            "runtime_verification_ok": completion["runtime_verification_ok"],
+            "acceptance_ok": completion["acceptance_ok"],
+            "security_ok": completion["security_ok"],
+            "blocking_reasons": completion["blocking_reasons"],
+        }, args)
+        return 0 if completion["status"] == "COMPLETE" else 4
     if args.command == "task" and args.task_command == "start":
         request = resolve_request(args)
         if not request:
