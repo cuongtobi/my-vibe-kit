@@ -210,8 +210,8 @@ class VibeCoreTests(unittest.TestCase):
         project_map = json.loads(
             (root / ".vibe/runtime/project-map.json").read_text(encoding="utf-8")
         )
-        self.assertIn("styles/site.css", project_map["source_files"])
-        self.assertIn("index.html", project_map["source_files"])
+        self.assertEqual(project_map["source_extensions"][".css"], 1)
+        self.assertEqual(project_map["source_extensions"][".html"], 1)
         active = json.loads(
             (root / ".vibe/runtime/active-adapter.json").read_text(encoding="utf-8")
         )
@@ -229,6 +229,10 @@ class VibeCoreTests(unittest.TestCase):
         vibe_core.start_task(root, "change", "add rate limit to api route")
         backend_relevant = vibe_core.relevant_context(root, ["app/api/items/route.ts"])
         self.assertFalse(backend_relevant["frontend"]["enabled"])
+
+        vibe_core.start_task(root, "refactor", "redesign authentication architecture")
+        backend_redesign = vibe_core.relevant_context(root, ["app/api/items/route.ts"])
+        self.assertFalse(backend_redesign["frontend"]["enabled"])
 
     def test_wordpress_plugin_context_and_architecture_guidance(self):
         temp, root = self.make_repo()

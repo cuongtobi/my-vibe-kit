@@ -237,7 +237,7 @@ FRONTEND_REQUEST_PATTERNS = (
     r"\bui\b",
     r"\bux\b",
     r"\bgiao dien\b",
-    r"\bredesign\b",
+    r"\bredesign\b.*\b(?:ui|ux|page|screen|navbar|sidebar|header|footer|dashboard|landing|checkout|component|form|layout|theme)\b",
     r"\bresponsive\b",
     r"\b(?:navbar|sidebar|header|footer|modal|dialog|button|form|theme|typography|spacing|layout|css)\b",
     r"\b(?:landing|settings|pricing|checkout|login|signup|dashboard|admin)\s+(?:page|screen)\b",
