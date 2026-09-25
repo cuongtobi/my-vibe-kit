@@ -237,6 +237,18 @@ File này chứa:
 
 Clean Code mặc định gồm: tên rõ ý nghĩa, function/module tập trung, giảm nesting khi hợp lý, transport handler mỏng, lỗi/dependency rõ ràng, không mutable global state ẩn, không abstraction suy đoán, test theo behavior và ưu tiên code đơn giản hơn code “clever”.
 
+## Behavioral Coding Policy
+
+Kit dùng một behavioral policy chung cho Codex, Claude và Antigravity thay vì duy trì một bộ rule riêng chỉ cho Claude. `CLAUDE.md` được giữ cố ý ngắn và kế thừa behavior chung từ `AGENTS.md`; cùng policy cũng được đưa vào các skill plan/build/verify/vibe để global-skill install vẫn giữ hành vi này.
+
+Policy có bốn nguyên tắc chính:
+
+- **Think before coding:** nêu rõ assumption và tradeoff; chỉ hỏi khi ambiguity có thể làm thay đổi behavior, contract, dữ liệu, security, compatibility, destructive effect hoặc scope. Ambiguity nhỏ, reversible và low-risk có thể tiếp tục với một assumption bảo thủ được nói rõ.
+- **Simplicity first:** viết lượng code tối thiểu cần thiết cho behavior đã chấp nhận. Tránh feature suy đoán, abstraction chỉ dùng một lần và configurability không được yêu cầu. Defensive branch chỉ nên xử lý trạng thái thực sự có thể xảy ra theo contract đã biết, không thêm case “bất khả thi” do agent tự tưởng tượng.
+- **Surgical changes:** không tự ý refactor, rename, reformat, dọn comment hay xóa code cũ không liên quan. Cleanup chỉ áp dụng cho artifact trở nên thừa do chính patch hiện tại. Mỗi dòng thay đổi phải truy được về request, acceptance criterion, regression/compatibility/security evidence bắt buộc, hoặc cleanup do thay đổi này tạo ra.
+- **Goal-driven execution:** biến task không-trivial thành mục tiêu quan sát được và map từng bước với verification evidence. Bug ưu tiên reproduce -> root cause -> regression -> fix -> verify; refactor xác nhận behavior trước và sau thay đổi cấu trúc.
+
+Các rule này ưu tiên diff nhỏ, dễ review và thận trọng nhưng không ép agent hỏi lại đối với quyết định low-risk, reversible.
 ## Chính sách comment và documentation
 
 Kit coi comment là thông tin phục vụ bảo trì, không phải phần diễn giải lại code. Khi build và review, ưu tiên code tự giải thích bằng tên và cấu trúc; chỉ thêm comment khi cần giữ lại thông tin mà bản thân code không thể hiện rõ.
