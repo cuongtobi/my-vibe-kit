@@ -386,8 +386,8 @@ def _target_package_roots(root: Path, target_files: Optional[Sequence[str]]) -> 
             if current == resolved_root:
                 break
             current = current.parent
-    if root not in roots:
-        roots.append(root)
+    if resolved_root not in roots:
+        roots.append(resolved_root)
     return roots
 
 
@@ -437,6 +437,7 @@ def frontend_task_context(
     ]
     if not framework_ids:
         framework_ids = [str(item) for item in (stack.get("frameworks") or [])]
+    resolved_root = root.resolve()
     package_roots = _target_package_roots(root, target_files)
     local_frontend_frameworks: List[str] = []
     for package_root in package_roots:
@@ -482,7 +483,7 @@ def frontend_task_context(
             _json(package_root / "package.json"),
             ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"],
         )
-        relative_root = package_root.relative_to(root).as_posix() if package_root != root else "."
+        relative_root = package_root.relative_to(resolved_root).as_posix() if package_root != resolved_root else "."
         playwright = "playwright" in package_deps or "@playwright/test" in package_deps or any(
             (package_root / ("playwright.config." + suffix)).exists() for suffix in config_suffixes
         )
@@ -500,7 +501,7 @@ def frontend_task_context(
 
     design_path = next(
         (package_root / "DESIGN.md" for package_root in package_roots if (package_root / "DESIGN.md").is_file()),
-        root / "DESIGN.md",
+        resolved_root / "DESIGN.md",
     )
     return {
         "enabled": enabled,
@@ -512,12 +513,12 @@ def frontend_task_context(
             "targets": frontend_targets,
             "frontend_capable_stack": frontend_capable,
             "package_roots": [
-                package_root.relative_to(root).as_posix() if package_root != root else "."
+                package_root.relative_to(resolved_root).as_posix() if package_root != resolved_root else "."
                 for package_root in package_roots
             ],
         },
         "design_context": {
-            "path": design_path.relative_to(root).as_posix() if design_path.is_file() else None,
+            "path": design_path.relative_to(resolved_root).as_posix() if design_path.is_file() else None,
             "mode": "declared" if design_path.is_file() else "infer-existing-ui",
             "required": False,
         },
