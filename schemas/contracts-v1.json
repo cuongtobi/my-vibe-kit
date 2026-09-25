@@ -1,0 +1,132 @@
+{
+  "manifest_version": 1,
+  "config": {
+    "supported_versions": [1, 2, 3],
+    "object_sections": ["stack", "architecture", "context", "index", "dependency", "verification", "tasks"]
+  },
+  "artifacts": {
+    "project-map": {
+      "version": 1,
+      "required": {
+        "artifact_type": "string",
+        "schema_version": "integer",
+        "generated_at": "string",
+        "stack": "object",
+        "source_file_count": "integer",
+        "cache": "object"
+      }
+    },
+    "dependency-map": {
+      "version": 1,
+      "required": {
+        "artifact_type": "string",
+        "schema_version": "integer",
+        "generated_at": "string",
+        "nodes": "array",
+        "edges": "array",
+        "dependencies": "object",
+        "reverse_dependencies": "object",
+        "cycles": "array",
+        "authority": "object",
+        "cache": "object"
+      }
+    },
+    "relevant-context": {
+      "version": 1,
+      "required": {
+        "artifact_type": "string",
+        "schema_version": "integer",
+        "generated_at": "string",
+        "targets": "array",
+        "retrieval_mode": "string",
+        "retrieval_confidence": "string",
+        "source_files": "array",
+        "test_files": "array",
+        "selection_diagnostics": "array"
+      }
+    },
+    "verification": {
+      "version": 1,
+      "required": {
+        "artifact_type": "string",
+        "schema_version": "integer",
+        "generated_at": "string",
+        "status": "string",
+        "source_fingerprint": "string",
+        "commands_run": "integer",
+        "command_results": "array"
+      }
+    },
+    "task": {
+      "version": 1,
+      "required": {
+        "artifact_type": "string",
+        "schema_version": "integer",
+        "id": "string",
+        "mode": "string",
+        "request": "string",
+        "created_at": "string",
+        "path": "string"
+      }
+    },
+    "dependency-diff": {
+      "version": 1,
+      "required": {
+        "artifact_type": "string",
+        "schema_version": "integer",
+        "generated_at": "string",
+        "added_edges": "array",
+        "removed_edges": "array",
+        "new_cycles": "array",
+        "removed_cycles": "array"
+      }
+    },
+    "security-candidates": {
+      "version": 1,
+      "required": {
+        "artifact_type": "string",
+        "schema_version": "integer",
+        "classification": "string",
+        "surfaces": "array",
+        "evidence": "object",
+        "authority": "object"
+      }
+    },
+    "acceptance-evidence": {
+      "version": 1,
+      "required": {
+        "artifact_type": "string",
+        "schema_version": "integer",
+        "task_id": "string",
+        "criteria": "array"
+      }
+    },
+    "security-evidence": {
+      "version": 1,
+      "required": {
+        "artifact_type": "string",
+        "schema_version": "integer",
+        "task_id": "string",
+        "classification": "string",
+        "surfaces": "array",
+        "trust_boundaries": "array",
+        "targeted_checks": "array",
+        "scanner": "object",
+        "dependency_vulnerability": "object",
+        "limitations": "array"
+      }
+    },
+    "completion": {
+      "version": 1,
+      "required": {
+        "artifact_type": "string",
+        "schema_version": "integer",
+        "status": "string",
+        "runtime_verification_ok": "boolean",
+        "acceptance_ok": "boolean",
+        "security_ok": "boolean",
+        "blocking_reasons": "array"
+      }
+    }
+  }
+}
