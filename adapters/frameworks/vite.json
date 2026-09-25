@@ -1,6 +1,7 @@
 {
   "id": "vite",
   "kind": "tooling-framework",
+  "frontend_tooling": true,
   "language": "javascript-or-typescript",
   "detect": [
     "package dependency vite"

@@ -50,6 +50,20 @@ class BehavioralPolicyTests(unittest.TestCase):
         self.assertIn("observable goals", vibe)
         self.assertIn("Keep retries evidence-driven", vibe)
 
+    def test_lightweight_frontend_policy_uses_existing_skills(self):
+        policy = self.read("skills/vibe/reference/frontend-policy.md")
+        self.assertIn("Preserve versus redesign", policy)
+        self.assertIn("DESIGN.md is optional", policy)
+        self.assertIn("max_rounds", self.read("runtime/vibe_stacks.py"))
+        self.assertIn("one primary visual inspection round", policy)
+
+        for relative in ("skills/plan/SKILL.md", "skills/build/SKILL.md", "skills/verify/SKILL.md"):
+            with self.subTest(relative=relative):
+                self.assertIn("../vibe/reference/frontend-policy.md", self.read(relative))
+
+        self.assertIn('"frontend": true', self.read("adapters/frameworks/react.json"))
+        self.assertIn('"frontend": true', self.read("adapters/frameworks/nextjs.json"))
+
     def test_readmes_document_cross_agent_policy(self):
         english = self.read("README.md")
         vietnamese = self.read("README_vi.md")

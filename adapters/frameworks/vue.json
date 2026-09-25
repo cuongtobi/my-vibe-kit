@@ -1,6 +1,7 @@
 {
   "id": "vue",
   "kind": "framework",
+  "frontend": true,
   "language": "javascript-or-typescript",
   "detect": [
     "package dependency vue"

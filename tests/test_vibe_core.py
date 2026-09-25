@@ -163,6 +163,77 @@ class VibeCoreTests(unittest.TestCase):
         self.assertIn("pages/about.vue", graph["nodes"])
         self.assertIn("src/routes/dashboard/+page.svelte", graph["nodes"])
 
+    def test_frontend_task_context_is_scoped_and_indexes_ui_files(self):
+        temp, root = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        (root / "package.json").write_text(
+            json.dumps({
+                "dependencies": {"react": "^19.0.0", "next": "^16.0.0"},
+                "devDependencies": {"@playwright/test": "^1.59.0"},
+            }),
+            encoding="utf-8",
+        )
+        component = root / "src" / "components"
+        component.mkdir(parents=True)
+        (component / "NavBar.tsx").write_text(
+            "export function NavBar() { return <nav>Home</nav> }\n",
+            encoding="utf-8",
+        )
+        styles = root / "styles"
+        styles.mkdir()
+        (styles / "site.css").write_text("nav { display: flex; }\n", encoding="utf-8")
+        (root / "index.html").write_text("<main>Home</main>\n", encoding="utf-8")
+        (root / "DESIGN.md").write_text("# Design\nUse existing tokens.\n", encoding="utf-8")
+
+        vibe_core.start_task(root, "change", "redesign responsive navbar")
+        relevant = vibe_core.relevant_context(
+            root,
+            ["src/components/NavBar.tsx", "styles/site.css"],
+        )
+        frontend = relevant["frontend"]
+        self.assertTrue(frontend["enabled"])
+        self.assertEqual(frontend["intent"], "redesign")
+        self.assertEqual(frontend["design_context"]["path"], "DESIGN.md")
+        self.assertEqual(frontend["visual_qa"]["max_rounds"], 2)
+        self.assertIn("playwright", frontend["visual_qa"]["browser_tooling"])
+        self.assertEqual(
+            frontend["acceptance_dimensions"],
+            [
+                "visual-consistency",
+                "responsive-behavior",
+                "interaction-states",
+                "accessibility",
+                "content-layout-integrity",
+            ],
+        )
+
+        project_map = json.loads(
+            (root / ".vibe/runtime/project-map.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(project_map["source_extensions"][".css"], 1)
+        self.assertEqual(project_map["source_extensions"][".html"], 1)
+        active = json.loads(
+            (root / ".vibe/runtime/active-adapter.json").read_text(encoding="utf-8")
+        )
+        self.assertTrue(active["frontend_task"]["enabled"])
+
+        report = vibe_core.verify(root)
+        self.assertTrue(report["frontend"]["enabled"])
+
+        api = root / "app" / "api" / "items"
+        api.mkdir(parents=True)
+        (api / "route.ts").write_text(
+            "export async function GET() { return new Response('ok') }\n",
+            encoding="utf-8",
+        )
+        vibe_core.start_task(root, "change", "add rate limit to api route")
+        backend_relevant = vibe_core.relevant_context(root, ["app/api/items/route.ts"])
+        self.assertFalse(backend_relevant["frontend"]["enabled"])
+
+        vibe_core.start_task(root, "refactor", "redesign authentication architecture")
+        backend_redesign = vibe_core.relevant_context(root, ["app/api/items/route.ts"])
+        self.assertFalse(backend_redesign["frontend"]["enabled"])
+
     def test_wordpress_plugin_context_and_architecture_guidance(self):
         temp, root = self.make_repo()
         self.addCleanup(temp.cleanup)

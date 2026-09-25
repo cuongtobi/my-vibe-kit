@@ -1,6 +1,7 @@
 {
   "id": "react",
   "kind": "framework",
+  "frontend": true,
   "language": "javascript-or-typescript",
   "detect": [
     "package dependency react"

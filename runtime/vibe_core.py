@@ -21,6 +21,7 @@ from vibe_stacks import (
     detect_stack as detect_stack_extended,
     effective_adapter,
     framework_context,
+    frontend_task_context,
     scan_polyglot_dependencies,
 )
 from vibe_retrieval import (
@@ -90,6 +91,13 @@ SOURCE_EXTENSIONS = {
     ".php",
     ".vue",
     ".svelte",
+    ".html",
+    ".htm",
+    ".css",
+    ".scss",
+    ".sass",
+    ".less",
+    ".astro",
 }
 TEST_HINTS = ("test", "tests", "spec", "specs", "__tests__")
 JS_IMPORT_RE = re.compile(
@@ -500,6 +508,8 @@ def _materialize_task_view(
         ]
     config = load_config(root)
     adapter = effective_adapter(root, active_query, targets)
+    frontend = frontend_task_context(root, adapter, active_query, targets)
+    adapter["frontend_task"] = frontend
     architecture = architecture_policy(
         root,
         config,
@@ -521,6 +531,7 @@ def _materialize_task_view(
             for item in (adapter.get("frameworks") or [])
             if isinstance(item, dict)
         ],
+        "frontend": frontend,
     }
 
 
@@ -1440,6 +1451,15 @@ def relevant_context(
     )
     if task_view:
         data["task_primary_stack"] = task_view
+        data["frontend"] = task_view.get("frontend") or {}
+    else:
+        fallback_adapter = effective_adapter(root, active_query, data.get("targets") or [])
+        data["frontend"] = frontend_task_context(
+            root,
+            fallback_adapter,
+            active_query,
+            data.get("targets") or [],
+        )
 
     security = security_assessment(root, data.get("targets") or [], request=active_query)
     data["security_candidates"] = {
@@ -1677,7 +1697,17 @@ def verify(root: Path) -> Dict[str, object]:
         status = "PASS_VERIFIED"
 
     architecture = json_load(runtime_dir(root) / "architecture-policy.json", {})
-    security = security_assessment(root, changed_files(root))
+    task = current_task(root) or {}
+    verification_targets = changed_files(root)
+    verification_request = str(task.get("request") or "")
+    verification_adapter = effective_adapter(root, verification_request, verification_targets)
+    frontend = frontend_task_context(
+        root,
+        verification_adapter,
+        verification_request,
+        verification_targets,
+    )
+    security = security_assessment(root, verification_targets)
     data = {
         "generated_at": utc_now(),
         "status": status,
@@ -1703,6 +1733,7 @@ def verify(root: Path) -> Dict[str, object]:
         "git_status": (git(root, "status", "--short") or "").splitlines(),
         "git_diff_stat": git(root, "diff", "--stat"),
         "security_candidate_surfaces": security.get("surfaces") or [],
+        "frontend": frontend,
     }
     data = stamp_artifact("verification", data)
     json_dump(runtime_dir(root) / "verification.json", data)

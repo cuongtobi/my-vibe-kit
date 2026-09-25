@@ -127,6 +127,14 @@ plan / impact / build / verify
 
 Với frontend, adapter có thể merge nhiều lớp. Project TypeScript + React + Vite có thể active cả ba; project Next.js có thể active Next.js + React nhưng architecture guidance ưu tiên meta-framework. Tương tự Nuxt được ưu tiên hơn Vue và SvelteKit ưu tiên hơn Svelte. Vite chỉ là tooling adapter, không quyết định application architecture.
 
+### Frontend quality policy gọn nhẹ
+
+Task frontend vẫn chạy trong đúng workflow 4 skill hiện có; không thêm command design/polish/audit riêng. Runtime chỉ bổ sung block `frontend` mang tính advisory vào relevant-context/verification khi request hoặc target cho thấy đây là UI work. Block này chứa surface hint nhẹ, intent refine-vs-redesign, trạng thái optional `DESIGN.md`, năm nhóm acceptance UI và giới hạn visual QA tối đa hai vòng.
+
+Frontend policy dùng chung nằm trong reference tree của skill `vibe` và chỉ được plan/build/verify load khi cần. `DESIGN.md` là optional: nếu không có, agent suy ra visual system hiện tại từ bounded relevant code như token, theme config, shared component, CSS variable, font, spacing và các screen lân cận. HTML/CSS/Sass/Less/Astro cũng được đưa vào bounded source index để frontend retrieval không chỉ phụ thuộc tên file JS/TS.
+
+Verification tái sử dụng tooling native sẵn có của project. Playwright/Cypress/browser check hiện hữu có thể được dùng khi phù hợp, nhưng kit không tự cài browser engine hoặc visual tool chỉ để thi hành frontend policy. Nếu không có visual verification, đây phải được ghi thành evidence limitation thay vì tự coi là đã verify.
+
 ## Ranh giới module runtime
 
 Runtime được tách theo trách nhiệm để tránh tiếp tục phình thành một core đơn khối:
@@ -134,7 +142,7 @@ Runtime được tách theo trách nhiệm để tránh tiếp tục phình thà
 - `vibe_core.py` — orchestration, project/dependency graph, impact, snapshot, verification.
 - `vibe_retrieval.py` — Unicode tokenization, query expansion, confidence scoring, bounded fallback và relevant-context selection.
 - `vibe_tasks.py` — task record cùng retention/GC lifecycle explicit.
-- `vibe_stacks.py` — stack detection, task-aware stack selection, adapter và framework context.
+- `vibe_stacks.py` — stack detection, task-aware stack selection, adapter, framework context và lightweight frontend-task classification.
 - `vibe_state.py` — persistent cache và Git delta.
 - `vibe_architecture.py` — architecture/clean-code policy đã resolve.
 

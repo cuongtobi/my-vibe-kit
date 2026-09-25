@@ -31,6 +31,10 @@ An implementation request authorizes proceeding through plan, build, and verify 
 - Every changed line should be explainable by the request, an acceptance criterion, a regression test, a compatibility/security requirement, or cleanup made necessary by this patch. If it cannot be traced to one of those, remove it or explicitly re-plan the scope.
 - If implementation grows substantially beyond the planned shape, revisit the plan before continuing rather than normalizing the extra complexity after the fact.
 
+## Frontend tasks
+
+When `.vibe/runtime/relevant-context.json.frontend.enabled` is true, or the task is clearly frontend work without runtime metadata, read `../vibe/reference/frontend-policy.md` before the first UI edit. Preserve versus redesign according to the plan, read optional `DESIGN.md` when present, reuse the incumbent design system, and implement only the relevant frontend acceptance dimensions. Do not introduce a separate frontend workflow or install visual tooling just because this policy is active.
+
 ## Architecture and clean-code rules
 
 For greenfield/new modules, follow the effective architecture policy:

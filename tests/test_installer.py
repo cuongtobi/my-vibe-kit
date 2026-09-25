@@ -51,7 +51,9 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
             self.assertTrue((target / ".agents/skills/vibe/SKILL.md").exists())
+            self.assertTrue((target / ".agents/skills/vibe/reference/frontend-policy.md").exists())
             self.assertTrue((target / ".claude/skills/vibe/SKILL.md").exists())
+            self.assertTrue((target / ".claude/skills/vibe/reference/frontend-policy.md").exists())
             self.assertTrue((target / ".agents/workflows/vibe.md").exists())
             self.assertTrue((target / ".agents/rules/vibe-project.md").exists())
             self.assertTrue((target / ".vibe/tools/vibe.py").exists())
