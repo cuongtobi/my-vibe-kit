@@ -229,6 +229,30 @@ TASK_FRAMEWORK_ALIASES = {
     "actix": "actix-web",
 }
 
+FRONTEND_FRAMEWORK_IDS = {"react", "nextjs", "vue", "nuxt", "svelte", "sveltekit"}
+FRONTEND_TARGET_SUFFIXES = {".html", ".htm", ".css", ".scss", ".sass", ".less", ".jsx", ".tsx", ".vue", ".svelte", ".astro"}
+FRONTEND_SCRIPT_PATH_HINTS = {"components", "layouts", "styles", "ui", "views", "templates"}
+FRONTEND_REQUEST_PATTERNS = (
+    r"\bfront[\s-]?end\b",
+    r"\bui\b",
+    r"\bux\b",
+    r"\bgiao dien\b",
+    r"\bredesign\b",
+    r"\bresponsive\b",
+    r"\b(?:navbar|sidebar|header|footer|modal|dialog|button|form|theme|typography|spacing|layout|css)\b",
+    r"\b(?:landing|settings|pricing|checkout|login|signup|dashboard|admin)\s+(?:page|screen)\b",
+    r"\b(?:trang|man hinh)\s+(?:dang nhap|cai dat|dashboard|admin|checkout|landing)\b",
+)
+FRONTEND_REDESIGN_PATTERNS = (
+    r"\bredesign\b",
+    r"\brestyle\b",
+    r"\boverhaul\b",
+    r"\bnew look\b",
+    r"\brework\s+(?:the\s+)?ui\b",
+    r"\bthiet ke lai\b",
+    r"\bve lai\b",
+)
+
 
 def _fold_task_text(value: str) -> str:
     value = unicodedata.normalize("NFKC", value or "").casefold().replace("đ", "d")
@@ -347,6 +371,114 @@ def effective_adapter(
         'language': primary_language,
         'frameworks': frameworks,
         'adapter_source': str(base) if base is not None else None,
+    }
+
+
+def frontend_task_context(
+    root: Path,
+    adapter: Dict[str, object],
+    task_request: Optional[str] = None,
+    target_files: Optional[Sequence[str]] = None,
+) -> Dict[str, object]:
+    """Classify lightweight frontend work without creating a separate workflow."""
+    folded = _fold_task_text(task_request or "")
+    request_signal = any(re.search(pattern, folded) for pattern in FRONTEND_REQUEST_PATTERNS)
+
+    normalized_targets = [Path(str(value)).as_posix() for value in (target_files or [])]
+    frontend_targets = []
+    for value in normalized_targets:
+        path = Path(value)
+        suffix = path.suffix.lower()
+        parts = {part.casefold() for part in path.parts}
+        if suffix in FRONTEND_TARGET_SUFFIXES:
+            frontend_targets.append(value)
+        elif suffix in {".js", ".ts", ".mjs", ".cjs"} and parts & FRONTEND_SCRIPT_PATH_HINTS:
+            frontend_targets.append(value)
+
+    stack = adapter.get("stack") if isinstance(adapter, dict) else {}
+    stack = stack if isinstance(stack, dict) else {}
+    framework_ids = [
+        str(item.get("id"))
+        for item in (adapter.get("frameworks") or [])
+        if isinstance(item, dict) and item.get("id")
+    ]
+    if not framework_ids:
+        framework_ids = [str(item) for item in (stack.get("frameworks") or [])]
+    frontend_frameworks = [item for item in framework_ids if item in FRONTEND_FRAMEWORK_IDS]
+    adapter_frontend = any(
+        isinstance(item, dict) and item.get("frontend") is True
+        for item in (adapter.get("frameworks") or [])
+    )
+    frontend_capable = adapter_frontend or bool(frontend_frameworks)
+
+    enabled = bool(request_signal or frontend_targets)
+    if not enabled and frontend_capable:
+        enabled = bool(re.search(r"\b(?:component|screen|visual|style|design)\b", folded))
+
+    if re.search(r"\b(?:landing|hero|pricing|marketing|homepage|trang chu|gioi thieu)\b", folded):
+        surface = "marketing"
+    elif re.search(r"\b(?:checkout|cart|shop|storefront|commerce|product page)\b", folded):
+        surface = "commerce"
+    elif re.search(r"\b(?:blog|docs|documentation|article|post|bai viet)\b", folded):
+        surface = "content"
+    elif re.search(r"\b(?:admin|dashboard|backoffice)\b", folded):
+        surface = "admin"
+    elif re.search(r"\b(?:component|button|modal|dialog|navbar|sidebar)\b", folded):
+        surface = "component"
+    else:
+        surface = "application"
+
+    intent = "redesign" if any(
+        re.search(pattern, folded) for pattern in FRONTEND_REDESIGN_PATTERNS
+    ) else "refine"
+
+    package_deps = _deps(
+        _json(root / "package.json"),
+        ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"],
+    )
+    browser_tooling = []
+    if "playwright" in package_deps or "@playwright/test" in package_deps or any(
+        (root / name).exists()
+        for name in ("playwright.config.js", "playwright.config.ts", "playwright.config.mjs")
+    ):
+        browser_tooling.append("playwright")
+    if "cypress" in package_deps or any(
+        (root / name).exists()
+        for name in ("cypress.config.js", "cypress.config.ts", "cypress.config.mjs")
+    ):
+        browser_tooling.append("cypress")
+
+    design_path = root / "DESIGN.md"
+    return {
+        "enabled": enabled,
+        "surface": surface if enabled else None,
+        "intent": intent if enabled else None,
+        "frameworks": frontend_frameworks,
+        "signals": {
+            "request": request_signal,
+            "targets": frontend_targets,
+            "frontend_capable_stack": frontend_capable,
+        },
+        "design_context": {
+            "path": "DESIGN.md" if design_path.is_file() else None,
+            "mode": "declared" if design_path.is_file() else "infer-existing-ui",
+            "required": False,
+        },
+        "acceptance_dimensions": [
+            "visual-consistency",
+            "responsive-behavior",
+            "interaction-states",
+            "accessibility",
+            "content-layout-integrity",
+        ] if enabled else [],
+        "visual_qa": {
+            "max_rounds": 2,
+            "inspection_rounds": 1,
+            "confirmation_rounds": 1,
+            "browser_tooling": browser_tooling,
+            "install_new_tooling": False,
+        } if enabled else {},
+        "authority": "advisory-task-classification",
     }
 
 

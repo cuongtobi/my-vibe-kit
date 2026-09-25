@@ -1,6 +1,7 @@
 {
   "id": "nextjs",
   "kind": "framework",
+  "frontend": true,
   "language": "javascript-or-typescript",
   "detect": [
     "package dependency next"
