@@ -308,7 +308,7 @@ Verify ghi `acceptance-evidence.json` và `security-evidence.json` qua CLI, sau 
 python .vibe/tools/vibe.py complete --summary
 ```
 
-Completion gate có thể trả `COMPLETE`, `INCOMPLETE_VERIFICATION`, `INCOMPLETE_ACCEPTANCE`, `INCOMPLETE_SECURITY` hoặc `INCOMPLETE`. Security classifier của runtime chỉ là advisory: `security-candidates.json` thu tín hiệu từ request/path/content/framework route, còn agent vẫn quyết định classification cuối cùng. Nếu runtime có candidate nhưng quyết định cuối là non-sensitive thì evidence phải ghi rationale override.
+Acceptance/security record được bind vào đúng `verification.json.source_fingerprint`, vì vậy nếu source/config thay đổi rồi chạy verify lại thì evidence cũ tự thành stale cho tới khi được review và ghi lại theo fingerprint mới. Completion gate có thể trả `COMPLETE`, `INCOMPLETE_VERIFICATION`, `INCOMPLETE_ACCEPTANCE`, `INCOMPLETE_SECURITY` hoặc `INCOMPLETE`. Security classifier của runtime chỉ là advisory: `security-candidates.json` thu tín hiệu từ request/path/content/framework route, còn agent vẫn quyết định classification cuối cùng. Nếu runtime có candidate nhưng quyết định cuối là non-sensitive thì evidence phải ghi rationale override.
 
 Auto-strict architecture cũng trở thành task-aware. Khi retrieval đã có target rõ ràng, threshold được đánh giá trên các module liên quan tới task thay vì tự động ép cả monorepo lớn sang strict chỉ vì có nhiều source file không liên quan. `architecture-policy.json` hiển thị cả kích thước repository và task scope thực tế dùng để quyết định.
 
