@@ -286,6 +286,34 @@ For example, refresh-token/session work reviews token rotation/expiry, revocatio
 
 For security-sensitive tasks, normal lint/type/test/build success or runtime `PASS_VERIFIED` is not enough to call the task complete. Verification records a dedicated **Security evidence** section with the security diff review, targeted tests/checks, scanner results when available, dependency-vulnerability evidence when relevant, and explicit limitations. Missing scanners are reported rather than silently treated as success.
 
+## Runtime contracts and workflow completion
+
+Runtime artifacts now carry an explicit `artifact_type` and `schema_version`. The stdlib-only validator uses `schemas/contracts-v1.json` as the checked-in contract manifest for `project-map.json`, `dependency-map.json`, `relevant-context.json`, `verification.json`, task records, dependency diffs, security candidates, structured evidence, and completion status. Config versions 1-3 remain readable, but invalid field types or unsupported versions are rejected explicitly. Contract-invalid cached project/dependency artifacts are rebuilt instead of trusted.
+
+`PASS_VERIFIED` remains backward-compatible and means only that configured runtime checks passed against a stable source fingerprint and no forbidden dependency-cycle condition failed. Final task completion is a separate deterministic gate:
+
+```text
+PASS_VERIFIED
+      +
+all acceptance criteria = met
+      +
+explicit security decision/evidence
+      ↓
+COMPLETE
+```
+
+The verify workflow records `acceptance-evidence.json` and `security-evidence.json` through the CLI, then runs:
+
+```bash
+python .vibe/tools/vibe.py complete --summary
+```
+
+The completion gate can report `COMPLETE`, `INCOMPLETE_VERIFICATION`, `INCOMPLETE_ACCEPTANCE`, `INCOMPLETE_SECURITY`, or `INCOMPLETE`. Runtime security classification is advisory: `security-candidates.json` surfaces request/path/content/framework-route signals, while the agent records the final classification. If candidates exist but the final decision is non-sensitive, the evidence must include an override rationale.
+
+Architecture auto-strict evaluation is also task-aware. Once retrieval has explicit targets, size thresholds are evaluated against the relevant target modules rather than automatically promoting a large monorepo because of unrelated source files. `architecture-policy.json` exposes both repository size and the evaluated task scope.
+
+Retrieval now includes `selection_diagnostics` and `test_diagnostics`, showing whether a selected file came from the target set, forward dependency expansion, reverse-consumer expansion, or test linkage, including dependency depth and the immediate `via` edge when available.
+
 ## Persistent context architecture
 
 The kit does not treat chat history or old task folders as the source of truth.
@@ -954,7 +982,12 @@ my-vibe-kit/
 │   ├── vibe_tasks.py
 │   ├── vibe_stacks.py
 │   ├── vibe_architecture.py
+│   ├── vibe_contracts.py
+│   ├── vibe_security.py
+│   ├── vibe_workflow.py
 │   └── vibe_state.py
+├── schemas/
+│   └── contracts-v1.json
 ├── benchmarks/
 │   └── benchmark_runtime.py
 ├── adapters/
