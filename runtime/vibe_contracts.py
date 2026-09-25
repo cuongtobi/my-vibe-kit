@@ -174,6 +174,10 @@ def validate_acceptance_semantics(data: Dict[str, object]) -> None:
         evidence = item.get("evidence")
         if not isinstance(evidence, list) or not all(isinstance(value, str) for value in evidence):
             raise ContractError("Acceptance criterion evidence must be an array of strings.")
+        if item.get("result") == "met" and (
+            not evidence or not all(value.strip() for value in evidence)
+        ):
+            raise ContractError("A met acceptance criterion requires non-empty evidence.")
 
 
 def validate_security_semantics(data: Dict[str, object]) -> None:
@@ -190,6 +194,21 @@ def validate_security_semantics(data: Dict[str, object]) -> None:
     for item in checks:
         if not isinstance(item, dict) or item.get("result") not in {"passed", "failed", "unverified"}:
             raise ContractError("Each targeted security check needs result passed/failed/unverified.")
+        if item.get("result") == "passed":
+            description = item.get("description")
+            evidence = item.get("evidence")
+            if not isinstance(description, str) or not description.strip():
+                raise ContractError("A passed targeted security check requires a description.")
+            if isinstance(evidence, str):
+                evidence_ok = bool(evidence.strip())
+            elif isinstance(evidence, list):
+                evidence_ok = bool(evidence) and all(
+                    isinstance(value, str) and value.strip() for value in evidence
+                )
+            else:
+                evidence_ok = False
+            if not evidence_ok:
+                raise ContractError("A passed targeted security check requires evidence.")
     for key in ("scanner", "dependency_vulnerability"):
         item = data.get(key)
         if not isinstance(item, dict):
