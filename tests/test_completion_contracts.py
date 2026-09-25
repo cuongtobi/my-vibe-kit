@@ -78,6 +78,27 @@ class CompletionContractTests(unittest.TestCase):
         data.update(extra)
         return data
 
+    def test_legacy_current_task_is_migrated_without_losing_identity(self):
+        temp, root, task = self.make_repo()
+        self.addCleanup(temp.cleanup)
+        current_path = root / ".vibe/runtime/current-task.json"
+        legacy = dict(task)
+        legacy.pop("artifact_type")
+        legacy.pop("schema_version")
+        current_path.write_text(json.dumps(legacy), encoding="utf-8")
+        task_json = root / task["path"] / "task.json"
+        task_json.write_text(json.dumps(legacy), encoding="utf-8")
+
+        migrated = vibe_core.current_task(root)
+
+        self.assertEqual(migrated["id"], task["id"])
+        self.assertEqual(migrated["artifact_type"], "task")
+        self.assertEqual(migrated["schema_version"], 1)
+        self.assertEqual(
+            json.loads(task_json.read_text(encoding="utf-8"))["schema_version"],
+            1,
+        )
+
     def test_runtime_artifacts_are_versioned_and_config_rejects_unknown_version(self):
         temp, root, _ = self.make_repo()
         self.addCleanup(temp.cleanup)
