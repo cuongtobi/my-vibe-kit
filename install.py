@@ -18,7 +18,7 @@ from vibe_stacks import (  # noqa: E402
     discover_verification_commands as discover_verification_commands_full,
 )
 
-VERSION = "0.9.1"
+VERSION = "0.9.2"
 SUPPORTED_AGENTS = ("codex", "claude", "antigravity")
 
 
@@ -107,6 +107,104 @@ def copy_tree_safe(
         events.append({"path": str(target), "status": status})
 
 
+def _tree_relative_files(src: Path, destination: Path) -> List[str]:
+    files = []
+    for path in sorted(src.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts or path.suffix.lower() in {".pyc", ".pyo"}:
+            continue
+        files.append((destination / path.relative_to(src)).as_posix())
+    return files
+
+
+def project_managed_files(agents: Sequence[str]) -> List[str]:
+    files = []
+    files.extend(_tree_relative_files(ROOT / "runtime", Path(".vibe/tools")))
+    files.extend(_tree_relative_files(ROOT / "adapters", Path(".vibe/adapters")))
+    files.extend(_tree_relative_files(ROOT / "schemas", Path(".vibe/schemas")))
+    files.append(".vibe/.gitignore")
+    if "codex" in agents or "antigravity" in agents:
+        files.extend(_tree_relative_files(ROOT / "skills", Path(".agents/skills")))
+    if "claude" in agents:
+        files.extend(_tree_relative_files(ROOT / "skills", Path(".claude/skills")))
+    if "antigravity" in agents:
+        files.extend(_tree_relative_files(ROOT / "integrations" / "antigravity" / "rules", Path(".agents/rules")))
+        files.extend(_tree_relative_files(ROOT / "integrations" / "antigravity" / "workflows", Path(".agents/workflows")))
+    return sorted(dict.fromkeys(files))
+
+
+def _read_json_object(path: Path) -> Dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+
+
+def _active_managed_prefixes(agents: Sequence[str]) -> List[str]:
+    prefixes = [".vibe/tools/", ".vibe/adapters/", ".vibe/schemas/", ".vibe/.gitignore"]
+    if "codex" in agents or "antigravity" in agents:
+        prefixes.append(".agents/skills/")
+    if "claude" in agents:
+        prefixes.append(".claude/skills/")
+    if "antigravity" in agents:
+        prefixes.extend([".agents/rules/", ".agents/workflows/"])
+    return prefixes
+
+
+def _under_active_prefix(relative: str, prefixes: Sequence[str]) -> bool:
+    return any(relative == prefix.rstrip("/") or relative.startswith(prefix) for prefix in prefixes)
+
+
+def prune_obsolete_managed_files(
+    target: Path,
+    agents: Sequence[str],
+    current_files: Sequence[str],
+    previous_manifest: Dict[str, object],
+    *,
+    dry_run: bool,
+    force: bool,
+    events: List[Dict[str, str]],
+) -> None:
+    if not force:
+        return
+    current = set(current_files)
+    prefixes = _active_managed_prefixes(agents)
+    candidates = set()
+    previous_files = previous_manifest.get("managed_files")
+    if isinstance(previous_files, list):
+        candidates.update(
+            str(value) for value in previous_files
+            if isinstance(value, str) and _under_active_prefix(str(value), prefixes)
+        )
+
+    # These subtrees are exclusively owned by the kit, so legacy v1 installs can
+    # also be reconciled safely even though their manifest had no per-file list.
+    exclusive_roots = [Path(".vibe/tools"), Path(".vibe/adapters"), Path(".vibe/schemas")]
+    skill_names = [path.name for path in (ROOT / "skills").iterdir() if path.is_dir()]
+    if "codex" in agents or "antigravity" in agents:
+        exclusive_roots.extend(Path(".agents/skills") / name for name in skill_names)
+    if "claude" in agents:
+        exclusive_roots.extend(Path(".claude/skills") / name for name in skill_names)
+    for relative_root in exclusive_roots:
+        absolute_root = target / relative_root
+        if not absolute_root.is_dir():
+            continue
+        for path in absolute_root.rglob("*"):
+            if path.is_file() or path.is_symlink():
+                candidates.add(path.relative_to(target).as_posix())
+
+    for relative in sorted(candidates - current):
+        path = target / relative
+        if not path.exists() and not path.is_symlink():
+            continue
+        status = "would-remove" if dry_run else "removed"
+        if not dry_run:
+            if path.is_dir() and not path.is_symlink():
+                continue
+            path.unlink()
+        events.append({"path": str(path), "status": status})
+
+
 def detect_stack(target: Path) -> Dict[str, object]:
     return detect_stack_full(target)
 
@@ -177,6 +275,8 @@ def install_project(
         target.mkdir(parents=True, exist_ok=True)
 
     events = []
+    manifest_path = target / ".vibe" / "install-manifest.json"
+    previous_manifest = _read_json_object(manifest_path)
 
     # Durable project instructions are user-owned once created.
     events.append(
@@ -289,9 +389,22 @@ def install_project(
             events=events,
         )
 
+    managed_files = project_managed_files(agents)
+    prune_obsolete_managed_files(
+        target,
+        agents,
+        managed_files,
+        previous_manifest,
+        dry_run=dry_run,
+        force=force,
+        events=events,
+    )
+
     manifest = {
+        "schema_version": 2,
         "kit_version": VERSION,
         "agents": list(agents),
+        "managed_files": managed_files,
         "managed_roots": [
             ".vibe/tools",
             ".vibe/adapters",
@@ -305,9 +418,9 @@ def install_project(
     }
     events.append(
         {
-            "path": str(target / ".vibe" / "install-manifest.json"),
+            "path": str(manifest_path),
             "status": write_text_safe(
-                target / ".vibe" / "install-manifest.json",
+                manifest_path,
                 json.dumps(manifest, indent=2) + "\n",
                 dry_run=dry_run,
                 force=force,
@@ -374,22 +487,34 @@ def install_global(
 
 
 def bundle_claude(force: bool = False, dry_run: bool = False) -> List[Path]:
+    del force  # Bundles are generated artifacts and are always rebuilt when not dry-running.
     out_dir = ROOT / "dist" / "claude-skills"
     if not dry_run:
         out_dir.mkdir(parents=True, exist_ok=True)
     outputs = []
+    shared_frontend_policy = ROOT / "skills" / "vibe" / "reference" / "frontend-policy.md"
     for skill_dir in sorted((ROOT / "skills").iterdir()):
         if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
             continue
         out = out_dir / (skill_dir.name + ".zip")
-        if dry_run or (out.exists() and not force):
-            outputs.append(out)
+        outputs.append(out)
+        if dry_run:
             continue
         with zipfile.ZipFile(str(out), "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for path in sorted(skill_dir.rglob("*")):
-                if path.is_file() and "__pycache__" not in path.parts and path.suffix.lower() not in {".pyc", ".pyo"}:
-                    archive.write(str(path), str(path.relative_to(skill_dir)))
-        outputs.append(out)
+                if not path.is_file() or "__pycache__" in path.parts or path.suffix.lower() in {".pyc", ".pyo"}:
+                    continue
+                relative = path.relative_to(skill_dir).as_posix()
+                if relative == "SKILL.md" and skill_dir.name in {"plan", "build", "verify"}:
+                    content = path.read_text(encoding="utf-8").replace(
+                        "../vibe/reference/frontend-policy.md",
+                        "reference/frontend-policy.md",
+                    )
+                    archive.writestr(relative, content)
+                else:
+                    archive.write(str(path), relative)
+            if skill_dir.name in {"plan", "build", "verify"} and shared_frontend_policy.is_file():
+                archive.write(str(shared_frontend_policy), "reference/frontend-policy.md")
     return outputs
 
 
