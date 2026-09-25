@@ -22,8 +22,15 @@ Complete one software change with controlled scope and runtime evidence.
 4. Do not implement until the plan identifies targets, dependencies, impact, constraints, acceptance criteria, and their verification evidence. The plan must also classify whether the task is security-sensitive and, when it is, identify the relevant security surfaces and required evidence. A request to implement authorizes this workflow within its scope without a second plan approval. A planning-only request ends after plan; honor explicit user approval boundaries and ask only for missing decisions that materially affect the outcome.
 5. Apply the sibling `build` skill.
 6. Apply the sibling `verify` skill. A security-sensitive task is not complete merely because normal runtime checks pass; its explicit security evidence must also be complete.
-7. Route gaps and failures by cause using the table below. Keep the existing task and baseline during retries; do not reopen unrelated scope.
-8. Finish with a concise summary of:
+7. When the runtime exists, require the structured completion gate after verification/evidence recording:
+
+   ```bash
+   python .vibe/tools/vibe.py complete --summary
+   ```
+
+   Only `COMPLETE` authorizes reporting the workflow as finished. Keep `PASS_VERIFIED` as the narrower runtime-check status for compatibility.
+8. Route gaps and failures by cause using the table below. Keep the existing task and baseline during retries; do not reopen unrelated scope.
+9. Finish with a concise summary of:
    - mode,
    - files/areas changed,
    - tests/checks actually run,

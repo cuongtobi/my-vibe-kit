@@ -47,6 +47,8 @@ Use the installed vibe/plan/build/verify skills. Dependency, context, and archit
 - Respect the configured source/test/module context limits.
 - Treat `.vibe/tasks/` as cold history. Never auto-load every old task; read a prior task only when explicitly referenced or materially relevant.
 - Cached/indexed does not mean verified. Only runtime verification commands can establish `PASS_VERIFIED`.
+- Read retrieval `selection_diagnostics` when scope is non-obvious; dependency/reverse-dependency expansion is advisory static evidence.
+- Treat `.vibe/runtime/security-candidates.json` as advisory evidence only. The agent makes the final security classification and records it explicitly.
 
 ## Definition of done
 
@@ -55,9 +57,12 @@ A change is complete only when:
 - relevant tests exist or are updated,
 - dependency/architecture impact was checked,
 - configured verification commands pass,
+- all structured acceptance criteria are marked `met`,
+- a final security decision/evidence record is present,
+- `python .vibe/tools/vibe.py complete --summary` reports `COMPLETE`,
 - the final diff contains no unexplained unrelated changes.
 
-Do not claim PASS_VERIFIED without runtime evidence.
+`PASS_VERIFIED` is the narrower runtime-check status and is not, by itself, workflow completion. Do not claim either status without its runtime evidence.
 
 ## Project commands
 

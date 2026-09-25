@@ -98,6 +98,24 @@ Produce evidence that the change satisfies the request without introducing unexp
    Missing required security evidence keeps the task incomplete even when runtime verification reports `PASS_VERIFIED`.
 11. Evidence must correspond to the final changes. If review leads to further code, test, or configuration edits, rerun the affected checks and runtime verification, then update the acceptance evidence. Documentation-only edits require the relevant document checks.
 
+## Structured completion gate
+
+Runtime `PASS_VERIFIED` is only the project-check layer. Before declaring the task complete, materialize machine-readable evidence in `.vibe/runtime/` (this directory is ignored by the source fingerprint) and record it through the runtime:
+
+```bash
+python .vibe/tools/vibe.py evidence acceptance --file .vibe/runtime/acceptance-input.json
+python .vibe/tools/vibe.py evidence security --file .vibe/runtime/security-input.json
+python .vibe/tools/vibe.py complete --summary
+```
+
+Acceptance input must contain a non-empty `criteria` array. Every item uses the stable criterion id from plan, a non-empty `expected` string, an `evidence` array of actual commands/tests/manual checks, and `result: met|unmet|unverified`. A `met` criterion requires non-empty evidence. Completion requires every criterion to be `met`.
+
+The runtime binds both acceptance and security evidence to the current `verification.json.source_fingerprint`. If source/config inputs change and verification is rerun, previously recorded evidence becomes stale and the completion gate stays incomplete until evidence is reviewed and recorded again for the new fingerprint.
+
+Security input is required for every completed task so the final classification is explicit. It records `classification: security-sensitive|not-security-sensitive`, `surfaces`, `trust_boundaries`, `targeted_checks`, `scanner`, `dependency_vulnerability`, and `limitations`. For a sensitive task, at least one surface, trust boundary, and passed targeted check are required; scanner/dependency-vulnerability status must be explicit even when tooling is not available or not applicable. If runtime produced candidate surfaces but the final decision is `not-security-sensitive`, include a non-empty `candidate_override_reason`.
+
+The deterministic completion result is written to `completion.json`. Only `status: COMPLETE` means the workflow is complete. `INCOMPLETE_VERIFICATION`, `INCOMPLETE_ACCEPTANCE`, `INCOMPLETE_SECURITY`, or `INCOMPLETE` must be reported as incomplete even when `verification.json.status` is `PASS_VERIFIED`.
+
 ## Status rules
 
 - `PASS_VERIFIED`: only when required runtime checks actually ran and passed.

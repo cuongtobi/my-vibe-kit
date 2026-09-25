@@ -18,7 +18,7 @@ from vibe_stacks import (  # noqa: E402
     discover_verification_commands as discover_verification_commands_full,
 )
 
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 SUPPORTED_AGENTS = ("codex", "claude", "antigravity")
 
 
@@ -220,6 +220,13 @@ def install_project(
         force=force,
         events=events,
     )
+    copy_tree_safe(
+        ROOT / "schemas",
+        target / ".vibe" / "schemas",
+        dry_run=dry_run,
+        force=force,
+        events=events,
+    )
 
     config_path = target / ".vibe" / "config.json"
     config_text = json.dumps(default_config(target), indent=2, ensure_ascii=False) + "\n"
@@ -288,6 +295,7 @@ def install_project(
         "managed_roots": [
             ".vibe/tools",
             ".vibe/adapters",
+            ".vibe/schemas",
             ".agents/skills",
             ".claude/skills",
             ".agents/rules",
@@ -351,6 +359,13 @@ def install_global(
     copy_tree_safe(
         ROOT / "adapters",
         runtime_home / "adapters",
+        dry_run=dry_run,
+        force=force,
+        events=events,
+    )
+    copy_tree_safe(
+        ROOT / "schemas",
+        runtime_home / "schemas",
         dry_run=dry_run,
         force=force,
         events=events,

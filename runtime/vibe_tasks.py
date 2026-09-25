@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from vibe_contracts import ContractError, artifact_is_valid, stamp_artifact
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -41,6 +43,18 @@ def slugify(value: str, limit: int = 48) -> str:
     return (slug or "task")[:limit].rstrip("-")
 
 
+def _safe_task_path(root: Path, value: object) -> Optional[Path]:
+    if not isinstance(value, str) or not value:
+        return None
+    base = tasks_dir(root).resolve()
+    candidate = (root / value).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        return None
+    return candidate
+
+
 def start_task(root: Path, mode: str, request: str) -> Dict[str, object]:
     valid_modes = {"feature", "change", "bug_fix", "refactor", "hotfix"}
     if mode not in valid_modes:
@@ -61,13 +75,13 @@ def start_task(root: Path, mode: str, request: str) -> Dict[str, object]:
         except FileExistsError:
             continue
 
-    task = {
+    task = stamp_artifact("task", {
         "id": task_id,
         "mode": mode,
         "request": request,
         "created_at": utc_now(),
         "path": str(task_path.relative_to(root)),
-    }
+    })
     json_dump(task_path / "task.json", task)
     (task_path / "request.md").write_text(request.strip() + "\n", encoding="utf-8")
     json_dump(runtime_dir(root) / "current-task.json", task)
@@ -75,18 +89,39 @@ def start_task(root: Path, mode: str, request: str) -> Dict[str, object]:
 
 
 def current_task(root: Path) -> Optional[Dict[str, object]]:
-    data = json_load(runtime_dir(root) / "current-task.json", None)
-    return data if isinstance(data, dict) else None
+    path = runtime_dir(root) / "current-task.json"
+    data = json_load(path, None)
+    if artifact_is_valid("task", data):
+        return data if _safe_task_path(root, data.get("path")) is not None else None
+    if not isinstance(data, dict):
+        return None
+    # Pre-contract task records are safe to migrate only when they have no
+    # version/type markers and still satisfy the current task shape.
+    if "artifact_type" in data or "schema_version" in data:
+        return None
+    required = ("id", "mode", "request", "created_at", "path")
+    if not all(isinstance(data.get(key), str) and str(data.get(key)).strip() for key in required):
+        return None
+    if data.get("mode") not in {"feature", "change", "bug_fix", "refactor", "hotfix"}:
+        return None
+    try:
+        migrated = stamp_artifact("task", data)
+    except ContractError:
+        return None
+    task_path = _safe_task_path(root, migrated.get("path"))
+    if task_path is None:
+        return None
+    json_dump(path, migrated)
+    if task_path.is_dir():
+        json_dump(task_path / "task.json", migrated)
+    return migrated
 
 
 def current_task_path(root: Path) -> Optional[Path]:
     task = current_task(root)
     if not task:
         return None
-    relative = task.get("path")
-    if not isinstance(relative, str):
-        return None
-    return root / relative
+    return _safe_task_path(root, task.get("path"))
 
 
 def copy_to_current_task(root: Path, filename: str, data: object) -> None:

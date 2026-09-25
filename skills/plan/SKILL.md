@@ -40,6 +40,7 @@ Understand the smallest safe change before implementation.
    python .vibe/tools/vibe.py context --summary
    python .vibe/tools/vibe.py deps --summary
    python .vibe/tools/vibe.py relevant
+   python .vibe/tools/vibe.py security
    ```
 
    Create `snapshot before` only if no baseline exists and implementation has not started. An existing `dependency-before.json` is immutable, including during replanning. The runtime preserves valid baselines on repeated calls. If the baseline is missing or invalid after edits began, preserve available evidence and record that before/after dependency comparison is unavailable; never snapshot current edited code as the original baseline.
@@ -54,7 +55,7 @@ Understand the smallest safe change before implementation.
    - default to `standard + feature-first + modular-layered + framework-native`,
    - keep transport/presentation thin and business behavior in application/domain code,
    - standard projects may use ports/adapters or other abstractions for a concrete boundary, variation, reuse, or testing need; a full Clean/Hexagonal structure is not required.
-6. Start from `.vibe/runtime/relevant-context.json`. Its first-pass targets are ranked from the persistent Unicode-aware path + symbol + content-term index, including accent-folded tokens and configured query aliases. When the indexed score is below the configured confidence threshold, the runtime performs a bounded fallback content scan and records `retrieval_confidence`, `fallback`, and `needs_scoped_search`. Read the bounded source/test files first. If confidence is low, fallback was truncated, or the result is empty/unrelated, use a scoped project-native search to recover missing runtime/dynamic relationships, identify explicit targets, and rerun `relevant <identified-files>`. A low-confidence or empty result is a retrieval gap, not proof that nothing is affected. Do not paste the full graph into context; summary mode leaves it on disk.
+6. Start from `.vibe/runtime/relevant-context.json`. Its first-pass targets are ranked from the persistent Unicode-aware path + symbol + content-term index, including accent-folded tokens and configured query aliases. Read `selection_diagnostics` / `test_diagnostics` to see whether each file entered context as a target, forward dependency, reverse dependency/consumer, or related test, including dependency depth and the immediate `via` edge when available. When the indexed score is below the configured confidence threshold, the runtime performs a bounded fallback content scan and records `retrieval_confidence`, `fallback`, and `needs_scoped_search`. Read the bounded source/test files first. If confidence is low, fallback was truncated, or the result is empty/unrelated, use a scoped project-native search to recover missing runtime/dynamic relationships, identify explicit targets, and rerun `relevant <identified-files>`. A low-confidence or empty result is a retrieval gap, not proof that nothing is affected. Do not paste the full graph into context; summary mode leaves it on disk.
 7. Identify:
    - target files/symbols,
    - direct dependencies,
@@ -67,7 +68,7 @@ Understand the smallest safe change before implementation.
    - clean-code and dependency rules from the architecture policy,
    - related tests,
    - project commands that can verify the change.
-8. Classify the task as `security-sensitive` or `standard`. Treat it as security-sensitive when the request or affected code touches authentication, authorization, sessions, tokens, passwords, file upload/filesystem access, database queries using user-controlled data, user-controlled URLs, HTML rendering, command/process execution, payments, secrets/credentials, or another comparable trust boundary. Classification comes from both the request and discovered impact; a neutral-sounding task is still sensitive if the affected code crosses one of these boundaries.
+8. Read `.vibe/runtime/security-candidates.json` as advisory runtime evidence, then classify the task as `security-sensitive` or `standard`. Runtime candidates may come from the request, changed/target paths, source symbols/content, and affected framework routes; they never make the final decision. Treat the task as security-sensitive when the request or affected code touches authentication, authorization, sessions, tokens, passwords, file upload/filesystem access, database queries using user-controlled data, user-controlled URLs, HTML rendering, command/process execution, payments, secrets/credentials, or another comparable trust boundary. Classification comes from both the request and discovered impact; a neutral-sounding task is still sensitive if the affected code crosses one of these boundaries.
 
    For a security-sensitive task, record:
    - security-sensitive surfaces and trust boundaries,

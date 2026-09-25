@@ -2,6 +2,8 @@ name: performance-benchmark
 
 on:
   workflow_dispatch:
+  release:
+    types: [published]
 
 jobs:
   synthetic-runtime:
@@ -11,12 +13,36 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Restore previous benchmark baseline
+        uses: actions/cache/restore@v4
+        with:
+          path: benchmark-baseline.json
+          key: runtime-benchmark-${{ runner.os }}-py311-${{ github.run_id }}
+          restore-keys: |
+            runtime-benchmark-${{ runner.os }}-py311-
+
       - name: Run 1k / 5k / 20k benchmark
         shell: bash
         run: |
           set -o pipefail
-          python benchmarks/benchmark_runtime.py --sizes 1000 5000 20000 --json | tee benchmark-results.json
+          python benchmarks/benchmark_runtime.py \
+            --sizes 1000 5000 20000 \
+            --baseline benchmark-baseline.json \
+            --comparison-output benchmark-comparison.json \
+            --json | tee benchmark-results.json
+          cp benchmark-results.json benchmark-baseline.json
+
+      - name: Save current benchmark as next baseline
+        uses: actions/cache/save@v4
+        with:
+          path: benchmark-baseline.json
+          key: runtime-benchmark-${{ runner.os }}-py311-${{ github.run_id }}
+
       - uses: actions/upload-artifact@v4
         with:
-          name: runtime-benchmark-results
-          path: benchmark-results.json
+          name: runtime-benchmark-${{ github.sha }}
+          retention-days: 90
+          path: |
+            benchmark-results.json
+            benchmark-comparison.json

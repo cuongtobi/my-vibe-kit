@@ -44,6 +44,14 @@ For security-sensitive work:
 - Missing scanner/tooling is reported as a limitation; generic tests, lint, or `PASS_VERIFIED` alone are not proof of security.
 - Never weaken authentication, authorization, validation, isolation, secret handling, or another security control merely to make a failing test/check pass.
 
+## Runtime contracts and completion
+
+- Versioned runtime artifacts are validated against `schemas/contracts-v1.json`. Invalid/stale contract versions must be rebuilt or rejected rather than trusted.
+- `PASS_VERIFIED` is intentionally limited to configured runtime commands/dependency checks. It is not the final workflow status.
+- A task is complete only when the runtime completion gate reports `COMPLETE` from current verification evidence, all acceptance criteria marked `met`, and an explicit final security decision/evidence record.
+- The runtime security classifier is advisory. Agents must make the final classification; overriding detected candidate surfaces as non-sensitive requires a recorded rationale.
+- Architecture auto-strict decisions should use the relevant task/module scope when explicit targets are available instead of promoting an entire large monorepo by size alone.
+
 ## Verification
 
 Run:

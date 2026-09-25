@@ -8,6 +8,8 @@ single-file incremental refresh.
 
 import argparse
 import json
+import os
+import platform
 import subprocess
 import sys
 import tempfile
@@ -179,6 +181,64 @@ def benchmark_size(size: int) -> Dict[str, object]:
         }
 
 
+BENCHMARK_METRICS = [
+    "context_rebuild_seconds",
+    "dependency_rebuild_seconds",
+    "context_cache_hit_seconds",
+    "dependency_cache_hit_seconds",
+    "retrieval_seconds",
+    "context_incremental_seconds",
+    "dependency_incremental_seconds",
+]
+
+
+def comparison_payload(current: Dict[str, object], baseline: object) -> Dict[str, object]:
+    if not isinstance(baseline, dict):
+        return {"available": False, "reason": "baseline-missing-or-invalid", "sizes": []}
+    previous_results = {
+        int(item["size"]): item
+        for item in (baseline.get("results") or [])
+        if isinstance(item, dict) and isinstance(item.get("size"), int)
+    }
+    comparisons = []
+    for item in current.get("results") or []:
+        if not isinstance(item, dict) or not isinstance(item.get("size"), int):
+            continue
+        size = int(item["size"])
+        previous = previous_results.get(size)
+        if not isinstance(previous, dict):
+            continue
+        metrics = {}
+        for name in BENCHMARK_METRICS:
+            before = previous.get(name)
+            after = item.get(name)
+            if not isinstance(before, (int, float)) or not isinstance(after, (int, float)):
+                continue
+            delta = float(after) - float(before)
+            metrics[name] = {
+                "baseline_seconds": before,
+                "current_seconds": after,
+                "delta_seconds": round(delta, 4),
+                "delta_percent": round((delta / float(before)) * 100, 2) if before else None,
+            }
+        comparisons.append({"size": size, "metrics": metrics})
+    return {
+        "available": bool(comparisons),
+        "baseline_environment": baseline.get("environment"),
+        "sizes": comparisons,
+        "note": "Performance deltas are diagnostic only; compare controlled runners before treating them as regressions.",
+    }
+
+
+def load_json(path: str) -> object:
+    if not path:
+        return None
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Benchmark my-vibe-kit runtime scaling.")
     parser.add_argument(
@@ -189,6 +249,8 @@ def parse_args():
         help="Synthetic source-file counts. Defaults to 1000 5000 20000.",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON only.")
+    parser.add_argument("--baseline", help="Optional previous benchmark JSON for diagnostic regression comparison.")
+    parser.add_argument("--comparison-output", help="Optional path to write comparison JSON, including when no baseline exists.")
     return parser.parse_args()
 
 
@@ -197,10 +259,24 @@ def main() -> int:
     results = [benchmark_size(size) for size in args.sizes]
     payload = {
         "benchmark": "synthetic-python-chain",
+        "schema_version": 1,
         "sizes": args.sizes,
+        "environment": {
+            "python": platform.python_version(),
+            "platform": platform.platform(),
+            "github_sha": os.environ.get("GITHUB_SHA"),
+            "github_run_id": os.environ.get("GITHUB_RUN_ID"),
+        },
         "results": results,
         "note": "Use the same machine/runtime for before-after comparisons; absolute times are environment-dependent.",
     }
+    comparison = comparison_payload(payload, load_json(args.baseline))
+    payload["comparison"] = comparison
+    if args.comparison_output:
+        Path(args.comparison_output).write_text(
+            json.dumps(comparison, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:

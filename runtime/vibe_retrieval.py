@@ -274,6 +274,27 @@ def bounded_dependencies(
     return sorted(result)
 
 
+def relation_details(
+    seeds: Sequence[str],
+    mapping: Dict[str, Sequence[str]],
+    depth: int,
+) -> Dict[str, Dict[str, object]]:
+    queue = deque((seed, 0, None) for seed in seeds)
+    seen = set(seeds)
+    details: Dict[str, Dict[str, object]] = {}
+    while queue:
+        node, current_depth, _ = queue.popleft()
+        if current_depth >= depth:
+            continue
+        for target in mapping.get(node, []):
+            if target in seen:
+                continue
+            seen.add(target)
+            details[target] = {"depth": current_depth + 1, "via": node}
+            queue.append((target, current_depth + 1, node))
+    return details
+
+
 def fallback_content_scan(
     root: Path,
     source_paths: Sequence[str],
@@ -416,8 +437,10 @@ def build_relevant_payload(
 
     dependencies = graph.get("dependencies") or {}
     reverse = graph.get("reverse_dependencies") or {}
-    forward = bounded_dependencies(selected, dependencies, depth)
-    consumers = bounded_reverse_dependencies(selected, reverse, depth)
+    forward_details = relation_details(selected, dependencies, depth)
+    consumer_details = relation_details(selected, reverse, depth)
+    forward = sorted(forward_details)
+    consumers = sorted(consumer_details)
     ordered: List[str] = []
     for path in list(selected) + forward + consumers:
         if path not in ordered:
@@ -461,6 +484,41 @@ def build_relevant_payload(
     else:
         confidence = "low"
 
+    evidence_by_path = {
+        str(item.get("path")): item
+        for item in retrieval
+        if isinstance(item, dict) and isinstance(item.get("path"), str)
+    }
+    selection_diagnostics = []
+    for path in source_files:
+        roles = []
+        if path in selected:
+            roles.append("target")
+        if path in forward_details:
+            roles.append("dependency")
+        if path in consumer_details:
+            roles.append("reverse-dependency")
+        item = {
+            "path": path,
+            "roles": roles or ["related"],
+            "retrieval": evidence_by_path.get(path),
+        }
+        if path in forward_details:
+            item["dependency"] = forward_details[path]
+        if path in consumer_details:
+            item["reverse_dependency"] = consumer_details[path]
+        selection_diagnostics.append(item)
+
+    test_diagnostics = []
+    for test in related_tests:
+        linked = sorted(set(dependencies.get(test, [])) & impacted)
+        test_diagnostics.append({
+            "path": test,
+            "roles": ["related-test"],
+            "linked_source_files": linked,
+            "query_path_score": path_score(test, tokens),
+        })
+
     return {
         "query": query,
         "query_normalized": profile["normalized"],
@@ -476,6 +534,8 @@ def build_relevant_payload(
         "needs_scoped_search": confidence == "low" or bool(fallback.get("truncated")),
         "source_files": source_files,
         "test_files": related_tests,
+        "selection_diagnostics": selection_diagnostics,
+        "test_diagnostics": test_diagnostics,
         "related_modules": modules,
         "dependency_depth": depth,
         "dependency_authority": graph.get("authority"),

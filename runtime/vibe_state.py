@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 STATE_SCHEMA_VERSION = 1
-SCANNER_VERSION = "incremental-v6"
+SCANNER_VERSION = "incremental-v7"
 
 CACHE_FILES = {
     "context": "last-context.json",
@@ -25,6 +25,7 @@ IGNORED_STATE_PREFIXES = (
     ".vibe/tasks/",
     ".vibe/tools/",
     ".vibe/adapters/",
+    ".vibe/schemas/",
     ".agents/",
     ".claude/",
 )
